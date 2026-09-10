@@ -1,0 +1,29 @@
+Package: financial
+Type: Package
+Title: Financial-Structure Extensions for Merger Simulation
+Version: 0.0.0.9000
+Date: 2026-09-10
+Authors@R: c(person("Charles", "Taragin", email = "ctaragin+antitrustr@gmail.com",
+                  role = c("aut", "cre")))
+Maintainer: Charles Taragin <ctaragin+antitrustr@gmail.com>
+Depends: R (>= 4.0), antitrust
+Imports: methods, BB, nleqslv, cubature, numDeriv, stats
+Suggests: testthat (>= 3.0.0)
+Encoding: UTF-8
+Description: Two disjoint financial-structure merger model families built
+    on top of the 'antitrust' structural-fit contract: a debt / limited-
+    liability module (firm-level debt reshaping conditional demand shares
+    through the outside-share threshold) and a bank liquidity / stability
+    module (endogenous marginal-cost shifter driven by liquidity stress).
+    Depends only on 'antitrust'; ships its own constructors and lifecycle
+    methods rather than reusing antitrust's internal calibration registry.
+License: CC0
+LazyLoad: yes
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Config/testthat/edition: 3
+Collate:
+    'financial-package.R'
+    'FinancialArchitecture.R'
+    'DebtClasses.R'
+    'BankClasses.R'

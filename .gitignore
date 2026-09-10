@@ -1,0 +1,6 @@
+.Rlib/
+*.tar.gz
+.Rproj.user
+.Rhistory
+.RData
+design/*.log

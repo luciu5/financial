@@ -37,6 +37,20 @@ No copied demand engines / ownership machinery / counterfactual grammar. No infr
 - Merger changes ownership internalization **and** pools the combined entity's liquidity distribution.
 - Bank calibration strategy: **TBD** (recommendation pending): `specify()` supplies params directly; `calibrate()` via method-of-moments from observed rates/shares/margins + liquidity observables (no Stan in-package).
 
+## Fit hierarchy: WRAP, do not multiply-inherit (RULING)
+
+Decided from antitrust's own precedent (verified in refactor ModelArchitecture.R): `AntitrustFit`
+`contains = "StructuralFit"` and holds the legacy S4 model in its `@model` slot (ANY); methods read
+`fit@model` (e.g. line 1206 `model <- fit@model`). It does NOT multiply-inherit the legacy hierarchy.
+
+`financial` follows the SAME pattern — WRAPPING, not multiple inheritance:
+- `DebtFit contains "FinancialFit"` (-> StructuralFit); holds a `LogitDebt` in `@model`. `LogitDebt`
+  keeps `contains "Logit"` UNCHANGED. DebtFit's simulate/respecify/simulate_steps delegate to the
+  LogitDebt economics via `@model`. DO NOT make LogitDebt itself a FinancialFit (avoids the
+  two-base-hierarchy / multiple-inheritance trap: Logit->Bertrand->Antitrust vs StructuralFit).
+- `BankFit contains "FinancialFit"`; holds the bank pricing/state object in `@model`; THAT inner
+  object `contains "Antitrust"` for ownerToMatrix/ownerToVec reuse.
+
 ## Fit / lifecycle contract
 
 ```

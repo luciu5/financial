@@ -77,25 +77,27 @@ Requirement: counterfactuals must report **how additional (sequential) mergers a
 
 Both are partial-Beta moments of a share on [0,1] via `pbeta` ratios. The economic USES diverge (default threshold vs liquidity shortfall) — share only the primitive, **NOT** a `FinancialState`/`BalanceSheetState` superclass.
 
-## Proposed R/ layout (conceptual)
+## R/ layout (FLAT — R packages do NOT allow subdirectories under R/)
+
+Grouping is by FILENAME PREFIX, not directories. Verified: `R/shared/…` fails to load.
 
 ```
 R/
-  FinancialArchitecture.R    # FinancialFit virtual class + shared dispatch
+  financial-package.R        # package doc
+  FinancialArchitecture.R    # FinancialFit virtual class + default-reject dispatch
+  shared-beta-moments.R      # ONLY genuinely shared helper (DONE, oracle-validated)
   FinancialFit.R             # constructors, registry, lifecycle glue
-  debt/
-    DebtClasses.R            # LogitDebt (contains Logit)
-    DebtEquilibrium.R        # calcShares/Slopes/Prices/MC/Margins
-    DebtCounterfactual.R     # merger + leverage-change simulate methods
-    DebtSummary.R            # summary/plotBeta
-  banking/
-    BankClasses.R            # BankFit (contains FinancialFit; pricing obj contains Antitrust)
-    BalanceSheet.R           # liquidity-stress state, buffer, psi
-    BankEquilibrium.R        # Nash-in-rates fixed point (nleqslv fallback)
-    BankCounterfactual.R     # merger + liquidity pooling
-    BankRisk.R               # Lambda liquidity cost, shortfall
-  shared-private/
-    beta-moments.R           # ONLY genuinely shared helper
+
+  DebtClasses.R              # LogitDebt (contains antitrust::Logit)
+  DebtEquilibrium.R          # calcShares/Slopes/Prices/MC/Margins
+  DebtCounterfactual.R       # merger + leverage-change simulate/simulate_steps
+  DebtSummary.R              # summary/plotBeta
+
+  BankClasses.R              # BankFit (contains FinancialFit; pricing obj contains Antitrust)
+  BankBalanceSheet.R         # liquidity-stress state, buffer, psi
+  BankEquilibrium.R          # Nash-in-rates fixed point (nleqslv fallback)
+  BankCounterfactual.R       # merger + liquidity pooling; posterior-draw mapping
+  BankRisk.R                 # Lambda liquidity cost, shortfall
 ```
 
 ## Oracle strategy (Phase 5, before migration)

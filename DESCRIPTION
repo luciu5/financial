@@ -7,7 +7,7 @@ Authors@R: c(person("Charles", "Taragin", email = "ctaragin+antitrustr@gmail.com
                   role = c("aut", "cre")))
 Maintainer: Charles Taragin <ctaragin+antitrustr@gmail.com>
 Depends: R (>= 4.0), antitrust
-Imports: methods, BB, nleqslv, cubature, numDeriv, stats
+Imports: methods, BB, nleqslv, cubature, numDeriv, stats, dplyr
 Suggests: testthat (>= 3.0.0)
 Encoding: UTF-8
 Description: Two disjoint financial-structure merger model families built
@@ -23,8 +23,11 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Config/testthat/edition: 3
 Collate:
-    'financial-package.R'
-    'FinancialArchitecture.R'
-    'shared-beta-moments.R'
-    'DebtClasses.R'
     'BankClasses.R'
+    'DebtClasses.R'
+    'DebtCounterfactual.R'
+    'DebtEquilibrium.R'
+    'DebtSummary.R'
+    'FinancialArchitecture.R'
+    'financial-package.R'
+    'shared-beta-moments.R'

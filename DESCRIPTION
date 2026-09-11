@@ -23,11 +23,11 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
 Config/testthat/edition: 3
 Collate:
-    'BankClasses.R'
-    'DebtClasses.R'
-    'DebtCounterfactual.R'
-    'DebtEquilibrium.R'
-    'DebtSummary.R'
-    'FinancialArchitecture.R'
     'financial-package.R'
+    'FinancialArchitecture.R'
     'shared-beta-moments.R'
+    'DebtClasses.R'
+    'DebtEquilibrium.R'
+    'DebtCounterfactual.R'
+    'DebtSummary.R'
+    'BankClasses.R'

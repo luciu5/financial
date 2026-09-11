@@ -24,3 +24,17 @@ Verified: antitrust@refactor exposes StructuralFit, AntitrustFit, Counterfactual
 `Antitrust` base class: **now EXPORTED** (commit 0c32b982 on refactor) so bank pricing objects can `contains="Antitrust"`. Verified: exported, concrete (non-virtual) base — fine for contains=.
 
 Skeleton verified loading against this lib: FinancialFit is virtual, extends StructuralFit, and has default-reject methods for simulate/simulate_steps/respecify.
+
+## ⚠️ Do NOT run `roxygen2::roxygenise()` on `financial` naively
+
+roxygen's regeneration step tries to LOAD the package, which fails on the cross-package
+S4 inheritance `DebtFit contains "FinancialFit"` (FinancialFit comes from antitrust via
+StructuralFit) during roxygen's own load. When it fails it exits non-zero and can leave a
+PARTIALLY REWRITTEN DESCRIPTION — specifically it ALPHABETIZES the Collate field, which puts
+DebtClasses.R before FinancialArchitecture.R and breaks load order. This actually happened once.
+
+NAMESPACE and Collate are therefore HAND-MAINTAINED. Collate MUST keep dependency order:
+financial-package.R -> FinancialArchitecture.R (defines FinancialFit) -> shared-beta-moments.R
+-> Debt*.R -> Bank*.R. Never let a tool alphabetize it. Verify any change with
+`pkgload::load_all(".", reset=TRUE)` (reset=TRUE is what catches Collate-order bugs; a warm
+load can mask them).

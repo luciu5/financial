@@ -31,3 +31,7 @@ Collate:
     'DebtCounterfactual.R'
     'DebtSummary.R'
     'BankClasses.R'
+    'BankBalanceSheet.R'
+    'BankEquilibrium.R'
+    'BankCounterfactual.R'
+    'BankRisk.R'

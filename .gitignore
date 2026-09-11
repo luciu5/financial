@@ -4,3 +4,5 @@
 .Rhistory
 .RData
 design/*.log
+financial_*.tar.gz
+*.Rcheck/

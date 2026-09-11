@@ -21,6 +21,15 @@
 #' @keywords internal
 "_PACKAGE"
 
+## Quiet R CMD check NOTEs for dplyr non-standard-evaluation column names used
+## in summary(LogitDebt) (migrated verbatim from MergerDebt's market-level table).
+utils::globalVariables(c(
+  "ownerPre", "ownerPost", "marketID", "outputPre", "outputPost",
+  "profitsPre", "profitsPost", "leverage", "debtPre", "paasche",
+  "paascheNum", "paascheDen", "Pre-Merger HHI", "Post-Merger HHI",
+  "Pre-Merger Debt HHI", "HHI Change", "HHI Debt Change"
+))
+
 ## usethis namespace: start
 ## usethis namespace: end
 NULL

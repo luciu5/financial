@@ -1,0 +1,10 @@
+# Pinned source SHAs for financial release certification (Phase 9).
+# Do NOT rely on mutable branches for release certification.
+# Format: <name> <sha> <branch-at-pin> <date>
+antitrust 0c32b9826f31eed380674976972319487d072833 refactor 2026-09-10
+# antitrust 0c32b982 = refactor 24caac92 + "Export Antitrust virtual base class"
+# (the one narrow extension point financial required; see design/DEPENDENCY-ENV.md)
+#
+# Source families migrated FROM (read-only, not runtime deps):
+# mergersdebt ea727430509851c6fe972dbc0a8a56935e54dac7 main 2024-04-01
+# stability   cc95e2e07c45cfca1d0f69f14a655b8c01fb1614 main 2026-07-16

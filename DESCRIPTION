@@ -8,7 +8,7 @@ Authors@R: c(person("Charles", "Taragin", email = "ctaragin+antitrustr@gmail.com
 Maintainer: Charles Taragin <ctaragin+antitrustr@gmail.com>
 Depends: R (>= 4.0), antitrust
 Imports: methods, BB, nleqslv, cubature, numDeriv, stats, dplyr
-Suggests: testthat (>= 3.0.0)
+Suggests: testthat (>= 3.0.0), posterior, cmdstanr
 Encoding: UTF-8
 Description: Two disjoint financial-structure merger model families built
     on top of the 'antitrust' structural-fit contract: a debt / limited-

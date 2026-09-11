@@ -1,0 +1,9 @@
+^\.Rlib$
+^design$
+^ci$
+^tests/oracles/capture_.*\.R$
+^financial\.Rcheck$
+^financial_.*\.tar\.gz$
+^\.github$
+^.*\.Rproj$
+^\.Rproj\.user$

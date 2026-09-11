@@ -4,8 +4,8 @@
 
 | Item | Value |
 |---|---|
-| antitrust SHA (pinned) | `0c32b9826f31eed380674976972319487d072833` (refactor; adds Antitrust export). Previously 24caac92 before the export commit. |
-| antitrust version | 0.99.38 |
+| antitrust SHA (pinned) | `d9788f3949aa08de786bff19aec579d8d3d1cf78` (refactor tip, 2026-09-11; synced past upstream vertical-extraction/BLP work with the Antitrust-export commit cherry-picked forward). Superseded pins: `0c32b982...` (24caac92 + export, before refactor advanced), `24caac92` (before export). |
+| antitrust version | 0.99.39 |
 | Installed into | `~/Projects/ioverse/financial/.Rlib` (project-local) |
 | Global antitrust (untouched) | 0.99.35 (master) in `~/R/x86_64-ubuntu18-linux-gnu-library/4.4` |
 | R version | 4.4.1 |

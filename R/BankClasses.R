@@ -70,6 +70,17 @@
 #'   rate.
 #' @slot equity,liquidAssets Length J (bank-level) numeric vectors of equity
 #'   and the liquid-asset buffer.
+#' @slot assets Length J (bank-level) numeric vector of TOTAL bank assets
+#'   (Call-Report `assets`, `create_stability_data.R:275-276` in the legacy
+#'   source), used ONLY as the weight for `psiRule = "asset_weighted"`
+#'   (`.bank_group_liquidity()`). This is NOT the same quantity as
+#'   `liquidAssets` (cash + securities only) or `equity`; a red-team review
+#'   (2026-09) found the migration had substituted `liquidAssets + equity`
+#'   for this field, silently changing which bank's `psi` dominates a pooled
+#'   liquidity-friction parameter. `NA` (the default) falls back to that
+#'   proxy WITH AN EXPLICIT WARNING (see `.bank_group_liquidity()`) rather
+#'   than silently -- callers using `psiRule = "asset_weighted"` should
+#'   supply `data$assets` to `bank_fit()` for legacy-faithful behavior.
 #' @slot psi Length J (bank-level) numeric vector of the liquidity-friction
 #'   parameter (see `BankBalanceSheet.R`'s `calc_bank_psi()`).
 #' @slot omega_L,omega_D Length J (bank-level) numeric vectors of the
@@ -141,6 +152,7 @@ setClass(
         riskFreeRate = "numeric",
         equity = "numeric",
         liquidAssets = "numeric",
+        assets = "numeric",
         psi = "numeric",
         omega_L = "numeric",
         omega_D = "numeric",

@@ -52,6 +52,18 @@ rate.}
 \item{\code{equity,liquidAssets}}{Length J (bank-level) numeric vectors of equity
 and the liquid-asset buffer.}
 
+\item{\code{assets}}{Length J (bank-level) numeric vector of TOTAL bank assets
+(Call-Report \code{assets}, \code{create_stability_data.R:275-276} in the legacy
+source), used ONLY as the weight for \code{psiRule = "asset_weighted"}
+(\code{.bank_group_liquidity()}). This is NOT the same quantity as
+\code{liquidAssets} (cash + securities only) or \code{equity}; a red-team review
+(2026-09) found the migration had substituted \code{liquidAssets + equity}
+for this field, silently changing which bank's \code{psi} dominates a pooled
+liquidity-friction parameter. \code{NA} (the default) falls back to that
+proxy WITH AN EXPLICIT WARNING (see \code{.bank_group_liquidity()}) rather
+than silently -- callers using \code{psiRule = "asset_weighted"} should
+supply \code{data$assets} to \code{bank_fit()} for legacy-faithful behavior.}
+
 \item{\code{psi}}{Length J (bank-level) numeric vector of the liquidity-friction
 parameter (see \code{BankBalanceSheet.R}'s \code{calc_bank_psi()}).}
 

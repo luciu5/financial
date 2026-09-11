@@ -109,6 +109,16 @@ NULL
 
   equity <- .bank_align(data$equity, labels, "equity")
   liquidAssets <- .bank_align(data$liquid_assets, labels, "liquid_assets")
+  ## Total bank assets (Call-Report `assets`) -- used ONLY as the
+  ## psiRule = "asset_weighted" weight. Optional: NA per bank if the caller
+  ## doesn't supply data$assets, in which case .bank_group_liquidity() falls
+  ## back to liquidAssets+equity WITH AN EXPLICIT WARNING (see BankClasses.R's
+  ## roxygen note on this slot -- a red-team-flagged silent substitution).
+  assetsIn <- if (is.null(data$assets)) {
+    stats::setNames(rep(NA_real_, nBanks), labels)
+  } else {
+    .bank_align(data$assets, labels, "assets")
+  }
   ownerPre <- as.character(.bank_align(data$ownerPre %||% stats::setNames(labels, labels), labels, "ownerPre"))
   ownerPost <- as.character(.bank_align(data$ownerPost %||% ownerPre, labels, "ownerPost"))
   reoptimizing <- as.logical(.bank_align(data$reoptimizing %||% stats::setNames(rep(TRUE, nBanks), labels), labels, "reoptimizing"))
@@ -135,6 +145,7 @@ NULL
     costRaw_L = cost_raw_L, costRaw_D = cost_raw_D,
     riskFreeRate = data$r_f,
     equity = as.numeric(equity), liquidAssets = as.numeric(liquidAssets),
+    assets = as.numeric(assetsIn),
     psi = as.numeric(psiBank),
     omega_L = rep(0, nBanks), omega_D = rep(0, nBanks),
     liquidityPressure = rep(0, nBanks),

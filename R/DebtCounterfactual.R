@@ -322,6 +322,77 @@ debt_fit <- function(...) {
 #' @param ... Additional arguments forwarded to [calcPrices()] (e.g.
 #'   `isMax`).
 #' @return An updated `DebtFit`.
+#' @name DebtFit-lifecycle
+#' @rdname DebtFit-lifecycle
+NULL
+
+#' Debt-module counterfactual uncertainty deltas
+#'
+#' Computes, per firm, how a merger changes the uncertainty the firm faces --
+#' the debt-module counterpart to the bank module's `uncertainty_delta` output
+#' (`design/ARCHITECTURE.md`, "Counterfactual uncertainty response",
+#' exposure-only path). The Beta outside-share law (`shareOutParm`) is held
+#' fixed; the merger moves each firm's default threshold via ownership pooling
+#' and `debtPost`.
+#'
+#' The threshold `s0Focal` is the outside-share level at or above which the
+#' firm's profit falls short of its debt (from `s0Focal = 1 - debt/profit` in
+#' the single-market case, generalized across markets in
+#' `calcShares(outSideOnly = TRUE)`). Under the calibrated Beta with shape
+#' parameters `shareOutParm`, the firm defaults when the realized outside share
+#' exceeds the threshold, so:
+#'   - default probability     = `beta_tail_prob(s0Focal)`  (P(u > s0Focal))
+#'   - survival-weighted profit = per-firm conditional profit weighted by the
+#'     lower partial Beta mass `beta_lower_prob(s0Focal)` (the survival region).
+#' Deltas are post-merger minus pre-merger. A negative `delta_default_prob`
+#' is the debt/insurance effect (merger raises pooled profit -> raises the
+#' survival threshold -> lowers default risk).
+#'
+#' @keywords internal
+#' @noRd
+.debt_uncertainty_delta <- function(model) {
+    sp <- model@shareOutParm
+    ## Uncalibrated / degenerate Beta (e.g. uniform with NA/1,1): still report,
+    ## using whatever shareOutParm the fit carries.
+    s1 <- sp[1]
+    s2 <- sp[2]
+
+    thresh <- function(pre) {
+        ## SharesOutInt: nMarkets x nFirms outside-share thresholds. Collapse to
+        ## one threshold per firm (focal-market row) for the summary delta.
+        so <- calcShares(model, preMerger = pre, outSideOnly = TRUE)
+        so <- as.matrix(so)
+        foc <- model@focal
+        stats::setNames(as.numeric(so[foc, ]), colnames(so))
+    }
+
+    s0_pre <- thresh(TRUE)
+    s0_post <- thresh(FALSE)
+
+    ## Align on the union of firm labels present pre/post (post may re-label
+    ## merging firms to a common owner id).
+    default_prob <- function(s0) beta_tail_prob(s0, s1, s2)
+    survival_mass <- function(s0) beta_lower_prob(s0, s1, s2)
+
+    firms <- union(names(s0_pre), names(s0_post))
+    pick <- function(v, f) if (f %in% names(v)) v[[f]] else NA_real_
+
+    dp_pre <- vapply(firms, function(f) default_prob(pick(s0_pre, f)), numeric(1))
+    dp_post <- vapply(firms, function(f) default_prob(pick(s0_post, f)), numeric(1))
+    sv_pre <- vapply(firms, function(f) survival_mass(pick(s0_pre, f)), numeric(1))
+    sv_post <- vapply(firms, function(f) survival_mass(pick(s0_post, f)), numeric(1))
+
+    list(
+        firm = firms,
+        threshold_pre = stats::setNames(vapply(firms, function(f) pick(s0_pre, f), numeric(1)), firms),
+        threshold_post = stats::setNames(vapply(firms, function(f) pick(s0_post, f), numeric(1)), firms),
+        default_prob_pre = stats::setNames(dp_pre, firms),
+        default_prob_post = stats::setNames(dp_post, firms),
+        delta_default_prob = stats::setNames(dp_post - dp_pre, firms),
+        delta_survival_mass = stats::setNames(sv_post - sv_pre, firms)
+    )
+}
+
 #' @rdname DebtFit-lifecycle
 #' @export
 setMethod("simulate", "DebtFit", function(object, ownerPost = NULL, debtPost = NULL, ...) {
@@ -335,6 +406,12 @@ setMethod("simulate", "DebtFit", function(object, ownerPost = NULL, debtPost = N
 
     object@model <- model
     object@diagnostics$route <- "simulate"
+    ## First-class uncertainty-delta output (ARCHITECTURE "Counterfactual
+    ## uncertainty response"): how the merger changes each firm's default risk.
+    object@diagnostics$uncertainty_delta <- tryCatch(
+        .debt_uncertainty_delta(model),
+        error = function(e) list(error = conditionMessage(e))
+    )
     object
 })
 

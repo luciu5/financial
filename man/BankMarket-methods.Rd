@@ -4,6 +4,7 @@
 \alias{BankMarket-methods}
 \alias{calcShares,BankMarket-method}
 \alias{calcMargins,BankMarket-method}
+\alias{calcSlopes,BankMarket-method}
 \alias{calcMC,BankMarket-method}
 \alias{calcPrices,BankMarket-method}
 \title{Nash-in-rates equilibrium methods for the \code{BankMarket} class}
@@ -11,6 +12,8 @@
 \S4method{calcShares}{BankMarket}(object, preMerger = TRUE, ...)
 
 \S4method{calcMargins}{BankMarket}(object, preMerger = TRUE, ...)
+
+\S4method{calcSlopes}{BankMarket}(object, ...)
 
 \S4method{calcMC}{BankMarket}(object, preMerger = TRUE, dynamicLiquidity = FALSE, ...)
 
@@ -76,12 +79,12 @@ recomputation and the fixed-point/Broyden equilibrium search.
 \code{simulate_merger_exposure.R} is written for exactly ONE pairwise merger
 (\code{bank_a_id}/\code{bank_b_id}) and special-cases their 2x2 FOC block. The
 economics generalize losslessly to an arbitrary ownership structure: the
-FOC system \code{ownerMat * t(deriv)} is block-diagonal by ownership group by
-construction (verified numerically -- solving the full \code{ownerMat}-masked
-system gives IDENTICAL markups to solving each ownership group's block
-separately, including the legacy script's specific 2x2 case), so this
-migration solves each connected ownership-group block directly
-(\code{.bank_solve_markup_block()}) instead of hard-coding a 2x2 case. This
+FOC system \code{ownerMat * t(deriv)} IS genuinely block-diagonal by ownership
+GROUP (common ownership is an equivalence relation), so this migration
+solves each ownership-group block directly (\code{.bank_solve_markup_block()},
+partitioned by owner label -- NOT by the FOC matrix's incidental zero
+pattern, which undercounts chain-connected 3+-bank groups; see the
+correctness note on that function) instead of hard-coding a 2x2 case. This
 supports mergers among more than two banks and multiple simultaneous
 merging pairs, a strict generalization that reduces to the legacy 2-bank
 behavior exactly when there is exactly one 2-bank merging pair.

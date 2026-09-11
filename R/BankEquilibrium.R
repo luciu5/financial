@@ -35,12 +35,12 @@
 #' `simulate_merger_exposure.R` is written for exactly ONE pairwise merger
 #' (`bank_a_id`/`bank_b_id`) and special-cases their 2x2 FOC block. The
 #' economics generalize losslessly to an arbitrary ownership structure: the
-#' FOC system `ownerMat * t(deriv)` is block-diagonal by ownership group by
-#' construction (verified numerically -- solving the full `ownerMat`-masked
-#' system gives IDENTICAL markups to solving each ownership group's block
-#' separately, including the legacy script's specific 2x2 case), so this
-#' migration solves each connected ownership-group block directly
-#' (`.bank_solve_markup_block()`) instead of hard-coding a 2x2 case. This
+#' FOC system `ownerMat * t(deriv)` IS genuinely block-diagonal by ownership
+#' GROUP (common ownership is an equivalence relation), so this migration
+#' solves each ownership-group block directly (`.bank_solve_markup_block()`,
+#' partitioned by owner label -- NOT by the FOC matrix's incidental zero
+#' pattern, which undercounts chain-connected 3+-bank groups; see the
+#' correctness note on that function) instead of hard-coding a 2x2 case. This
 #' supports mergers among more than two banks and multiple simultaneous
 #' merging pairs, a strict generalization that reduces to the legacy 2-bank
 #' behavior exactly when there is exactly one 2-bank merging pair.
@@ -282,16 +282,37 @@ setMethod(
 #' (`markup_L <- -Q_L/deriv_L`); `sign = 1` reproduces the legacy deposit-side
 #' convention (`markdown_D <- Q_D/deriv_D`).
 #'
+#' @section Blocks are OWNERSHIP groups, not the FOC matrix's zero pattern:
+#' A red-team review (2026-09) found that partitioning by the FOC matrix's
+#' incidental zero pattern (one-hop neighbors in `foc[i,] != 0`) is WRONG for
+#' chain-connected ownership groups of 3+ banks: if bank A and bank C are
+#' commonly owned with B but A and C have no direct cross-derivative (e.g. no
+#' shared market), a one-hop scan splits {A,B,C} into overlapping 2-bank
+#' blocks {A,B} and {B,C} that are solved and OVERWRITTEN independently,
+#' violating A's and B's own FOC by a material margin (verified: residual up
+#' to ~0.15 on a synthetic 3-bank chain, vs machine-epsilon for the true joint
+#' solve; see `tests/testthat/test-bank-blocksolve.R`). Common ownership is an
+#' EQUIVALENCE RELATION (reflexive/symmetric/transitive on "same owner"), so
+#' partitioning by `blockId` (one id per distinct owner among the reoptimizing
+#' banks) is the economically correct block structure -- it is exact by
+#' construction, not an approximation, and the FOC system restricted to that
+#' partition is genuinely block-diagonal regardless of which cross-derivatives
+#' happen to be nonzero within a group.
+#'
+#' @param foc A K x K ownership-weighted derivative matrix.
+#' @param Q A length-K quantity-weight vector.
+#' @param sign +/-1, see above.
+#' @param blockId A length-K vector (any type with meaningful `==`) giving the
+#'   ownership-group id of each of the K rows/columns; rows with the same
+#'   `blockId` are solved as one joint block. Required -- do not infer blocks
+#'   from `foc`'s zero pattern.
 #' @keywords internal
 #' @noRd
-.bank_solve_markup_block <- function(foc, Q, sign) {
+.bank_solve_markup_block <- function(foc, Q, sign, blockId) {
   K <- nrow(foc)
   out <- numeric(K)
-  assigned <- rep(FALSE, K)
-  for (i in seq_len(K)) {
-    if (assigned[i]) next
-    block <- sort(union(i, which(foc[i, ] != 0 | foc[, i] != 0)))
-    assigned[block] <- TRUE
+  for (id in unique(blockId)) {
+    block <- which(blockId == id)
     if (length(block) == 1L) {
       out[block] <- if (foc[block, block] != 0) sign * Q[block] / foc[block, block] else 0
       next
@@ -325,19 +346,45 @@ setMethod(
     ownerFull <- ownerToMatrix(object, preMerger = preMerger)
     ownerBlock <- ownerFull[reopt, reopt, drop = FALSE]
 
+    ## Block id = the reoptimizing bank's owner label (common ownership is an
+    ## equivalence relation -> the TRUE block partition; see the correctness
+    ## note on .bank_solve_markup_block()). Do NOT infer blocks from focL/focD's
+    ## zero pattern -- that undercounts chain-connected 3+-bank groups.
+    ownerLabels <- if (preMerger) object@ownerPre else object@ownerPost
+    blockId <- ownerLabels[reopt]
+
     derivs <- .bank_deriv_matrices(object, shares, K, bankToIdx)
     focL <- ownerBlock * t(derivs$L)
     focD <- ownerBlock * t(derivs$D)
 
     markup_L <- numeric(length(object@labels))
     markdown_D <- numeric(length(object@labels))
-    markup_L[reopt] <- .bank_solve_markup_block(focL, weights$Q_L[reopt], sign = -1)
-    markdown_D[reopt] <- .bank_solve_markup_block(focD, weights$Q_D[reopt], sign = 1)
+    markup_L[reopt] <- .bank_solve_markup_block(focL, weights$Q_L[reopt], sign = -1, blockId = blockId)
+    markdown_D[reopt] <- .bank_solve_markup_block(focD, weights$Q_D[reopt], sign = 1, blockId = blockId)
 
     list(
       markup_L = markup_L, markdown_D = markdown_D,
       Q_L = weights$Q_L, Q_D = weights$Q_D,
       shares = shares, weights = weights
+    )
+  }
+)
+
+#' @rdname BankMarket-methods
+#' @export
+setMethod(
+  f = "calcSlopes",
+  signature = "BankMarket",
+  definition = function(object, ...) {
+    ## The bank module ingests already-calibrated Stan-posterior primitives
+    ## (via bank_fit(parameters=)); it does not run an antitrust-style
+    ## calcSlopes demand-calibration. Fail explicitly (per ARCHITECTURE's
+    ## "unsupported operations should fail explicitly") rather than relying on
+    ## R's cryptic "unable to find an inherited method" dispatch error.
+    stop(
+      "calcSlopes() is not supported for BankMarket: the bank module consumes ",
+      "pre-calibrated Stan-posterior parameters supplied to bank_fit(parameters=), ",
+      "rather than calibrating demand slopes from margins. See ?bank_fit."
     )
   }
 )
@@ -365,6 +412,35 @@ setMethod(
 #' not in every bank's -- the correct decomposition per
 #' `design/ARCHITECTURE.md`'s uncertainty-delta requirement.
 #'
+#' Asset-weighted psi for a merging group, using TOTAL bank assets
+#'
+#' Reproduces `simulate_merger_exposure.R`'s `psi_rule == "asset_weighted"`
+#' branch: `weighted.mean(psi[g], w = pmax(assets[g], 1))`, where `assets` is
+#' TOTAL Call-Report bank assets (`create_stability_data.R:275-276`). A
+#' red-team review (2026-09) found the migration had substituted
+#' `liquidAssets + equity` for this weight -- a materially different,
+#' undocumented quantity (see the `assets` slot roxygen note on
+#' `BankMarket-class`). This falls back to that proxy ONLY if the caller did
+#' not supply `data$assets` to `bank_fit()`, and warns explicitly rather than
+#' silently substituting.
+#'
+#' @keywords internal
+#' @noRd
+.bank_asset_weighted_psi <- function(object, g) {
+  a <- object@assets[g]
+  if (any(is.na(a))) {
+    warning(
+      "psiRule = 'asset_weighted' is using liquidAssets + equity as a proxy for ",
+      "total bank assets because data$assets was not supplied to bank_fit(). ",
+      "This does NOT match simulate_merger_exposure.R's true asset-weighted psi ",
+      "rule. Supply data$assets for legacy-faithful behavior.",
+      call. = FALSE
+    )
+    a <- object@liquidAssets[g] + object@equity[g]
+  }
+  stats::weighted.mean(object@psi[g], w = pmax(a, 1))
+}
+
 #' @keywords internal
 #' @noRd
 .bank_group_liquidity <- function(object, shares, weights, dynamicLiquidity, psiRule) {
@@ -414,7 +490,7 @@ setMethod(
           acquirer = object@psi[g[1]],
           target = object@psi[g[length(g)]],
           min = min(object@psi[g]),
-          asset_weighted = stats::weighted.mean(object@psi[g], w = pmax(object@liquidAssets[g] + object@equity[g], 1)),
+          asset_weighted = .bank_asset_weighted_psi(object, g),
           stop("Invalid psiRule: ", psiRule)
         )
       },

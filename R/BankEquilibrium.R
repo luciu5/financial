@@ -88,7 +88,7 @@
 #'   `BankCounterfactual.R`.
 #' @param ... Additional arguments (currently unused; retained for generic
 #'   compatibility).
-#' @include BankClasses.R
+#' @include BankBalanceSheet.R
 NULL
 
 ## ---------------------------------------------------------------------

@@ -25,16 +25,21 @@ Verified: antitrust@refactor exposes StructuralFit, AntitrustFit, Counterfactual
 
 Skeleton verified loading against this lib: FinancialFit is virtual, extends StructuralFit, and has default-reject methods for simulate/simulate_steps/respecify.
 
-## ⚠️ Do NOT run `roxygen2::roxygenise()` on `financial` naively
+## ⚠️ roxygen requires `@include` tags for correct Collate ordering
 
-roxygen's regeneration step tries to LOAD the package, which fails on the cross-package
-S4 inheritance `DebtFit contains "FinancialFit"` (FinancialFit comes from antitrust via
-StructuralFit) during roxygen's own load. When it fails it exits non-zero and can leave a
-PARTIALLY REWRITTEN DESCRIPTION — specifically it ALPHABETIZES the Collate field, which puts
-DebtClasses.R before FinancialArchitecture.R and breaks load order. This actually happened once.
+roxygen re-derives the DESCRIPTION `Collate:` field. WITHOUT dependency info it falls back to
+ALPHABETICAL order, which puts DebtClasses.R before FinancialArchitecture.R and breaks load
+(DebtFit contains FinancialFit, defined there). This corrupted Collate twice before `@include`
+tags were added.
 
-NAMESPACE and Collate are therefore HAND-MAINTAINED. Collate MUST keep dependency order:
-financial-package.R -> FinancialArchitecture.R (defines FinancialFit) -> shared-beta-moments.R
--> Debt*.R -> Bank*.R. Never let a tool alphabetize it. Verify any change with
-`pkgload::load_all(".", reset=TRUE)` (reset=TRUE is what catches Collate-order bugs; a warm
-load can mask them).
+FIX (in place): each R file carries `@include` tags encoding load order, so roxygen computes
+the CORRECT topological Collate. Run roxygen WITH the project lib on the path so the
+cross-package antitrust::StructuralFit resolves during roxygen's load step:
+`.libPaths(c("<financial>/.Rlib", .libPaths())); roxygen2::roxygenise(".")`.
+
+The known-good Collate order (which the @include graph reproduces): financial-package.R ->
+FinancialArchitecture.R -> shared-beta-moments.R -> Debt*.R -> Bank*.R.
+
+ALWAYS verify after any roxygen run: (1) Collate matches the known-good order, (2) NAMESPACE
+still has all exports, (3) `pkgload::load_all(".", reset=TRUE)` loads (reset=TRUE catches
+Collate-order bugs; a warm load masks them).

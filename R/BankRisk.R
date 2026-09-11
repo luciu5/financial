@@ -39,6 +39,7 @@
 #'
 #' @name Bank-risk
 #' @keywords internal
+#' @include BankCounterfactual.R
 NULL
 
 ## ---------------------------------------------------------------------

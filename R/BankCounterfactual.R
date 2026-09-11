@@ -25,6 +25,7 @@
 #' not branch on draw count until the AGGREGATION step.
 #'
 #' @name BankFit-lifecycle
+#' @include BankEquilibrium.R
 NULL
 
 ## ---------------------------------------------------------------------
@@ -242,10 +243,10 @@ NULL
 #' `gamma_psi[1..K_psi]`) as EITHER a single named numeric vector (point
 #' estimate or one draw) or a matrix/data.frame of `N_draws` rows (columns
 #' named with either the `name[i]` or `name.i` convention -- both accepted,
-#' see [normalize_bank_draws()]); `data` supplies everything the
+#' see `normalize_bank_draws()` (internal)); `data` supplies everything the
 #' deterministic solver needs that is NOT in the posterior.
 #'
-#' @param parameters See [normalize_bank_draws()] for the accepted shapes.
+#' @param parameters See `normalize_bank_draws()` (internal) for the accepted shapes.
 #' @param data A list with the following elements (row-level fields have
 #'   one entry per bank-market observation; bank-level fields have one
 #'   entry per unique bank, either named by bank id or given in
@@ -468,8 +469,8 @@ bank_fit <- function(parameters, data) {
 #'
 #' `simulate(BankFit, ownerPost, ...)` runs the exposure-based merger
 #' counterfactual for EVERY draw in `object@diagnostics$draws`, then
-#' aggregates per-quantity results using [`.bank_aggregate_draws()`]. This is
-#' the exposure-only counterfactual path described in
+#' aggregates per-quantity results using `.bank_aggregate_draws()` (internal).
+#' This is the exposure-only counterfactual path described in
 #' `design/ARCHITECTURE.md`'s "Counterfactual uncertainty response":
 #' ownership/footprint change; the Beta participation-share law
 #' (`outsideMu_{L,D}`/`phiOut_{L,D}`) is held fixed unless a caller-supplied
@@ -510,7 +511,6 @@ bank_fit <- function(parameters, data) {
 #'   full per-draw and aggregated result (see the roxygen details above);
 #'   `@model@pricePost` is set from the FIRST draw's "Full Merger" solution
 #'   for convenience.
-#' @name BankFit-lifecycle
 #' @rdname BankFit-lifecycle
 #' @export
 setMethod("simulate", "BankFit", function(object, ownerPost = NULL, ...) {

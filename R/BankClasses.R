@@ -116,6 +116,7 @@
 #' @name BankMarket-class
 #' @aliases BankMarket-class
 #' @rdname BankMarket-class
+#' @include DebtSummary.R
 #' @export
 setClass(
     Class = "BankMarket",

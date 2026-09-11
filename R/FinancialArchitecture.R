@@ -5,7 +5,7 @@
 #' new representation of its own: the financial structural state -- the
 #' normalized spec, fitted model, recovered/supplied parameters, observed
 #' pre-merger inputs, and diagnostics -- is inherited unchanged from
-#' [antitrust::StructuralFit]. `FinancialFit` exists purely to give the two
+#' [antitrust::StructuralFit-class]. `FinancialFit` exists purely to give the two
 #' families a common dispatch point for the extensible lifecycle generics
 #' (`simulate`, `simulate_steps`, `respecify`) so that `antitrust`'s
 #' `CounterfactualPath` resume machinery can dispatch on either family
@@ -29,6 +29,7 @@
 #' @import antitrust
 #' @importClassesFrom antitrust StructuralFit
 #' @importFrom antitrust simulate simulate_steps respecify
+#' @include financial-package.R
 #' @exportClass FinancialFit
 setClass(
     Class = "FinancialFit",

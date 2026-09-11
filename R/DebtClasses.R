@@ -27,7 +27,7 @@
 #'   `debtPre`.
 #' @slot density A length-1 character vector, either `"beta"` (default) or
 #'   `"uniform"`. If `"beta"`, the calibration routine assumes firm outside
-#'   shares are sampled from a [base::Beta] distribution and uses margin
+#'   shares are sampled from a [stats::Beta] distribution and uses margin
 #'   information to calibrate `shape1`/`shape2`. If `"uniform"`, then
 #'   `shape1 = shape2 = 1`.
 #'
@@ -46,7 +46,7 @@
 #' @slot parmsStart A length `m + 2` vector whose first `m` elements are
 #'   starting values for the price coefficients for each of the `m` markets.
 #'   The final 2 elements are starting values for `shape1` and `shape2` of
-#'   the [base::Beta] distribution.
+#'   the [stats::Beta] distribution.
 #' @slot shareOutParm A length-2 numeric vector of Beta `shape1`/`shape2`
 #'   parameters governing the outside-share default threshold. `NA` (the
 #'   default) triggers calibration via moment matching in `calcSlopes`.
@@ -86,6 +86,7 @@
 #' @name LogitDebt-class
 #' @aliases LogitDebt-class
 #' @rdname LogitDebt-class
+#' @include shared-beta-moments.R
 #' @export
 setClass(
     Class = "LogitDebt",

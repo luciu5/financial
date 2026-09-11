@@ -18,6 +18,7 @@
 #' markets. Let f denote the number of firms producing products across all
 #' markets. Let m denote the number of markets.
 #'
+#' @include DebtEquilibrium.R
 #' @param shares A length k vector of product (quantity) shares. Values must
 #'   be between 0 and 1.
 #' @param prices A length k vector of product prices.
@@ -47,7 +48,7 @@
 #'   their count). Fixed to `rep(1, length(unique(marketID)))`.
 #' @param density A length 1 vector equal to either `"beta"` (default) or
 #'   `"uniform"`. If `"beta"`, the calibration routine assumes firm outside
-#'   shares are sampled from a [base::Beta] distribution and uses margin
+#'   shares are sampled from a [stats::Beta] distribution and uses margin
 #'   information to calibrate `shape1` and `shape2`. If `"uniform"`, then
 #'   `shape1 = shape2 = 1`.
 #' @param normIndex An integer specifying the product index against which
@@ -66,7 +67,7 @@
 #' @param parmsStart A length `m + 2` vector whose first `m` elements are
 #'   starting values for the price coefficients for each of the `m` markets.
 #'   The final 2 elements are starting values for `shape1` and `shape2` of
-#'   the [base::Beta] distribution.
+#'   the [stats::Beta] distribution.
 #' @param shareOutParm A length-2 numeric vector of Beta `shape1`/`shape2`
 #'   parameters. If supplied, `density` calibration is skipped and this
 #'   value is used directly (this is how `density = "uniform"` is
@@ -321,7 +322,6 @@ debt_fit <- function(...) {
 #' @param ... Additional arguments forwarded to [calcPrices()] (e.g.
 #'   `isMax`).
 #' @return An updated `DebtFit`.
-#' @name DebtFit-lifecycle
 #' @rdname DebtFit-lifecycle
 #' @export
 setMethod("simulate", "DebtFit", function(object, ownerPost = NULL, debtPost = NULL, ...) {

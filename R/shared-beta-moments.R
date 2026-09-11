@@ -18,6 +18,9 @@
 ## @keywords internal
 ## @noRd
 
+#' @include FinancialArchitecture.R
+NULL
+
 ## ---- mean-precision (mu, phi) parameterization (banking participation shares) ----
 
 ## Mean of the inside (1 - outside) share under the banking convention.

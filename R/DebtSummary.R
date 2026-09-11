@@ -21,7 +21,7 @@
 #' @param digits Number of significant digits to print.
 #' @param ... currently unused; retained for generic compatibility.
 #' @return A data frame of results, invisibly.
-#' @include DebtEquilibrium.R
+#' @include DebtCounterfactual.R
 NULL
 
 #' Plot the calibrated outside-share Beta density

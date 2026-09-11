@@ -43,6 +43,7 @@
 #'
 #' @name Bank-balance-sheet
 #' @keywords internal
+#' @include BankClasses.R
 NULL
 
 ## ---------------------------------------------------------------------
@@ -270,7 +271,7 @@ normalize_bank_draws <- function(parameters) {
 
 #' Extract a named-vector "draw" from a draws matrix (bracket/dot both supported)
 #'
-#' @param draws_mat A draws matrix as returned by [normalize_bank_draws()].
+#' @param draws_mat A draws matrix as returned by `normalize_bank_draws()` (internal).
 #' @param i A row index.
 #' @return A named numeric vector (a single draw).
 #' @keywords internal

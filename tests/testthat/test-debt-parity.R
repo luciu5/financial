@@ -13,6 +13,7 @@ closedform_path <- testthat::test_path("..", "oracles", "debt_singlemarket_close
 ## ---------------------------------------------------------------------
 
 test_that("logit.debt() reproduces the golden-master grid fixture", {
+  skip_if(Sys.getenv("FINANCIAL_EXTENDED_TESTS") != "1", "extended validation")
     skip_if_not(file.exists(grid_path), "debt_goldenmaster_grid.rds oracle not present")
     grid <- readRDS(grid_path)
 

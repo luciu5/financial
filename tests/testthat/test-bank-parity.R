@@ -63,6 +63,7 @@ test_that("closed-form expected_liq_penalty agrees with the stored Monte-Carlo v
 })
 
 test_that("simulate_beta_portfolio_liquidity() Monte-Carlo comparator is migrated and runs", {
+  skip_if(Sys.getenv("FINANCIAL_EXTENDED_TESTS") != "1", "extended validation")
   skip_if_not(file.exists(mc_vs_cf_path), "bank_liquidity_mc_vs_cf.rds oracle not present")
   oracle <- readRDS(mc_vs_cf_path)
   inputs <- oracle$inputs

@@ -48,6 +48,46 @@ test_that("simulate(DebtFit) recomputes post-merger prices and emits uncertainty
 
     # Firm 2 is folded into owner "1" post-merger, so its post value is NA.
     expect_true(is.na(ud$default_prob_post[["2"]]))
+
+    # Single-market debt/default accounting, independently integrated rather
+    # than reconstructed with calcShares() or the package's Beta helpers.
+    model <- sim@model
+    shape <- model@shareOutParm
+    manual_threshold <- function(pre) {
+        price <- if (pre) model@pricePre else model@pricePost
+        cost <- if (pre) model@mcPre else model@mcPost
+        owner <- if (pre) model@ownerPre else model@ownerPost
+        debt <- if (pre) model@debtPre else model@debtPost
+        utility <- model@slopes$meanval + model@slopes$alpha * price
+        conditional_share <- exp(utility) / sum(exp(utility))
+        profit <- model@mktSize * (price - cost) * conditional_share
+        firm_profit <- tapply(profit, owner, sum)
+        firm_debt <- tapply(debt, owner, sum)
+        cutoff <- 1 - firm_debt / firm_profit
+        expect_true(all(cutoff > 0 & cutoff < 1))
+        vapply(cutoff, function(u) {
+            h <- stats::integrate(function(x)
+                x * (1 - x) * stats::dbeta(x, shape[1], shape[2]),
+                lower = 0, upper = u)$value
+            g <- stats::integrate(function(x)
+                (1 - x) * stats::dbeta(x, shape[1], shape[2]),
+                lower = 0, upper = u)$value
+            h / g
+        }, numeric(1))
+    }
+    for (pre in c(TRUE, FALSE)) {
+        expected_threshold <- manual_threshold(pre)
+        reported_threshold <- if (pre) ud$threshold_pre else ud$threshold_post
+        reported_default <- if (pre) ud$default_prob_pre else ud$default_prob_post
+        firms <- names(expected_threshold)
+        expect_equal(unname(reported_threshold[firms]),
+            unname(expected_threshold), tolerance = 1e-7)
+        expect_equal(unname(reported_default[firms]),
+            unname(1 - stats::pbeta(expected_threshold, shape[1], shape[2])),
+            tolerance = 1e-7)
+    }
+    expect_equal(unname(ud$delta_survival_mass[c("1", "3")]),
+        unname(-ud$delta_default_prob[c("1", "3")]), tolerance = 1e-12)
 })
 
 test_that("simulate_steps() and respecify() fail loudly on DebtFit (default-reject)", {

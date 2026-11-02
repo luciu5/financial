@@ -1,5 +1,5 @@
 name: financial QA
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('certification-{0}-{1}-{2}', inputs.release_certification, inputs.antitrust_release_sha, inputs.extended) || github.event_name }}
+run-name: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/') && format('release-certification-{0}', github.sha) || github.event_name == 'workflow_dispatch' && format('certification-{0}-{1}-{2}', inputs.release_certification, inputs.antitrust_release_sha, inputs.extended) || github.event_name }}
 on:
   push:
   pull_request:
@@ -43,6 +43,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          automatic_release_push=false
           if [[ "$RELEASE_CERTIFICATION" == true ]]; then
             if [[ ! "$ANTITRUST_RELEASE_SHA" =~ ^[[:xdigit:]]{40}$ ]]; then
               echo "Release certification requires antitrust_release_sha as an explicit full 40-character SHA; mutable refs such as main/refactor are rejected." >&2
@@ -65,11 +66,21 @@ jobs:
           print(sha)
           PY
           )"
+            if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/release/* ]]; then
+              automatic_release_push=true
+            fi
           else
             selected_ref="$ANTITRUST_REF"
           fi
           echo "antitrust_ref=$selected_ref" >> "$GITHUB_OUTPUT"
           echo "ANTITRUST_REF=$selected_ref" >> "$GITHUB_ENV"
+          if [[ "$automatic_release_push" == true ]]; then
+            {
+              echo "RELEASE_CERTIFICATION=true"
+              echo "ANTITRUST_RELEASE_SHA=$selected_ref"
+              echo "FINANCIAL_EXTENDED_TESTS=1"
+            } >> "$GITHUB_ENV"
+          fi
 
       - uses: actions/checkout@v4
         with:

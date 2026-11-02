@@ -1,13 +1,5 @@
-# Pinned source SHAs for financial release certification (Phase 9).
-# Do NOT rely on mutable branches for release certification.
-# Format: <name> <sha> <branch-at-pin> <date>
-antitrust d9788f3949aa08de786bff19aec579d8d3d1cf78 refactor 2026-09-11
-# antitrust d9788f3 = refactor tip after syncing with upstream vertical-extraction/BLP
-# work (24741a4..3ab5f37) + "Export Antitrust virtual base class" cherry-picked
-# forward (the one narrow extension point financial required; see
-# design/DEPENDENCY-ENV.md). Superseded pin: 0c32b9826f31eed380674976972319487d072833
-# (24caac92 + the same export commit, before refactor advanced upstream).
-#
-# Source families migrated FROM (read-only, not runtime deps):
-# mergersdebt ea727430509851c6fe972dbc0a8a56935e54dac7 main 2024-04-01
-# stability   cc95e2e07c45cfca1d0f69f14a655b8c01fb1614 main 2026-07-16
+# Historical pre-release baseline provenance only; build-check.sh does not
+# read this file. It predates coordinated release fixes and is not a candidate
+# pin. Ordinary bootstrap refs live in DEVELOPMENT_REFS; certification takes
+# ANTITRUST_RELEASE_SHA explicitly.
+antitrust 20f0923fc560295e04310aed5615c19dadf672cb refactor 2026-10-02

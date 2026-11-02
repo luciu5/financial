@@ -1,0 +1,67 @@
+name: financial QA
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '47 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      release_certification:
+        description: 'Require an explicit full antitrust candidate SHA'
+        required: false
+        default: false
+        type: boolean
+      antitrust_ref:
+        description: 'Antitrust development bootstrap ref (ignored for certification)'
+        required: false
+        default: 'refactor'
+        type: string
+      antitrust_release_sha:
+        description: 'Full 40-character antitrust candidate SHA'
+        required: false
+        type: string
+      extended:
+        description: 'Run extended economic validation'
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_CERTIFICATION: ${{ inputs.release_certification && 'true' || 'false' }}
+      ANTITRUST_REF: ${{ inputs.release_certification && inputs.antitrust_release_sha || inputs.antitrust_ref || 'refactor' }}
+      ANTITRUST_RELEASE_SHA: ${{ inputs.release_certification && inputs.antitrust_release_sha || '' }}
+      FINANCIAL_EXTENDED_TESTS: ${{ (github.event_name == 'schedule' || inputs.extended) && '1' || '0' }}
+      FINANCIAL_OUTPUT_DIR: ${{ runner.temp }}/financial-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate antitrust ref for release certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_CERTIFICATION" == true && ! "$ANTITRUST_RELEASE_SHA" =~ ^[[:xdigit:]]{40}$ ]]; then
+            echo "Release certification requires antitrust_release_sha as an explicit full 40-character SHA; mutable refs such as main/refactor are rejected." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          repository: luciu5/antitrust
+          ref: ${{ inputs.release_certification && inputs.antitrust_release_sha || inputs.antitrust_ref || 'refactor' }}
+          path: dependency-antitrust
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.6.1'
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: any::testthat, any::BB, any::nleqslv, any::cubature, any::numDeriv, any::dplyr, any::posterior, any::SQUAREM, any::knitr, any::bookdown, any::rmarkdown
+      - name: Check exact dependency stack
+        run: bash ci/build-check.sh "$GITHUB_WORKSPACE/dependency-antitrust"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: financial-release-evidence
+          path: ${{ runner.temp }}/financial-check

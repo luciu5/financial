@@ -1,3 +1,3 @@
 # Moving refs for ordinary development bootstrap runs only.
 # Release certification must provide ANTITRUST_RELEASE_SHA as a full commit SHA.
-antitrust refactor
+antitrust master

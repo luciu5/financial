@@ -9,8 +9,9 @@ The new bank economic gate independently checks ownership-adjusted loan and
 deposit FOCs for competition-only and pooled-liquidity merger scenarios.
 
 Use `bash ci/build-check.sh /path/to/antitrust` for an isolated source check.
-Ordinary development runs bootstrap from the `refactor` branch and record the
-resolved commit; set `ANTITRUST_REF` to select another local development ref.
+Ordinary development runs bootstrap from the antitrust `master` branch and
+record the resolved commit; set `ANTITRUST_REF` to select another local
+development ref.
 For release certification, set `RELEASE_CERTIFICATION=true`
 and `ANTITRUST_RELEASE_SHA` to the full 40-character candidate SHA; mutable
 refs such as `main` and `refactor` are rejected. Set

@@ -51,9 +51,13 @@ if [[ ( "$RELEASE_CERTIFICATION" == true || "$RELEASE_CERTIFICATION" == 1 ) && "
   echo "Checked-out antitrust SHA $RESOLVED_SHA does not match requested release candidate $ANTITRUST_REQUESTED_REF" >&2
   exit 1
 fi
-git -C "$ANTITRUST_SRC" archive "$RESOLVED_SHA" | tar -x -C "$BUILD_ROOT/antitrust"
+git -c core.autocrlf=false -C "$ANTITRUST_SRC" archive "$RESOLVED_SHA" | tar -x -C "$BUILD_ROOT/antitrust"
 
-export R_LIBS="$BUILD_ROOT/lib:$(Rscript --vanilla -e 'cat(paste(.libPaths(), collapse=":"))')"
+# R CMD check subprocesses may prioritize R_LIBS_USER over R_LIBS. Keep the
+# selected core first in both variables without hiding third-party packages.
+financial_library_paths="$BUILD_ROOT/lib:$(Rscript --vanilla -e 'cat(paste(.libPaths(), collapse=":"))')"
+export R_LIBS="$financial_library_paths"
+export R_LIBS_USER="$financial_library_paths"
 {
   echo "release_certification=$RELEASE_CERTIFICATION"
   echo "antitrust_requested_ref=$ANTITRUST_REQUESTED_REF"

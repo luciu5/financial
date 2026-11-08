@@ -1,12 +1,12 @@
 Package: financial
 Type: Package
 Title: Financial-Structure Extensions for Merger Simulation
-Version: 0.0.0.9000
-Date: 2026-09-10
+Version: 0.1.0
+Date: 2026-11-01
 Authors@R: c(person("Charles", "Taragin", email = "ctaragin+antitrustr@gmail.com",
                   role = c("aut", "cre")))
 Maintainer: Charles Taragin <ctaragin+antitrustr@gmail.com>
-Depends: R (>= 4.0), antitrust
+Depends: R (>= 4.0), antitrust (>= 0.99.43)
 Imports: methods, BB, nleqslv, cubature, numDeriv, stats, dplyr
 Suggests: testthat (>= 3.0.0), posterior, cmdstanr
 Encoding: UTF-8

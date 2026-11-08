@@ -1,61 +1,92 @@
 #!/usr/bin/env bash
-# Dependency-stack CI for `financial` (Phase 9).
-#
-# Certifies `financial` against a PINNED antitrust SHA, not a mutable branch.
-# Record of exact source SHAs is in ci/PINNED_SHAS. This script:
-#   1. installs the pinned antitrust commit into an isolated library
-#   2. builds and R CMD checks `financial` against it
-#
-# Usage: ci/build-check.sh [ANTITRUST_REPO_URL_OR_PATH]
-# Env overrides: ANTITRUST_SHA, FINANCIAL_LIB
+# Build in an isolated directory without changing source repository Git state.
 set -euo pipefail
 
 FINANCIAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ANTITRUST_SHA="${ANTITRUST_SHA:-$(grep '^antitrust ' "$FINANCIAL_DIR/ci/PINNED_SHAS" | awk '{print $2}')}"
-ANTITRUST_SRC="${1:-${ANTITRUST_SRC:-$HOME/Projects/ioverse/antitrust}}"
-FINANCIAL_LIB="${FINANCIAL_LIB:-$FINANCIAL_DIR/.Rlib}"
-
-echo "== financial dependency-stack CI =="
-echo "financial dir : $FINANCIAL_DIR"
-echo "antitrust src : $ANTITRUST_SRC"
-echo "antitrust SHA : $ANTITRUST_SHA (pinned)"
-echo "target lib    : $FINANCIAL_LIB"
-
-mkdir -p "$FINANCIAL_LIB"
-
-# --- 1. Install the pinned antitrust commit into an isolated worktree/library ---
-WORKTREE="$(mktemp -d)/antitrust-pinned"
-git -C "$ANTITRUST_SRC" worktree add -f --detach "$WORKTREE" "$ANTITRUST_SHA"
-trap 'git -C "$ANTITRUST_SRC" worktree remove --force "$WORKTREE" 2>/dev/null || true' EXIT
-
-BUILT_SHA="$(git -C "$WORKTREE" rev-parse HEAD)"
-if [ "$BUILT_SHA" != "$ANTITRUST_SHA" ] && [ "${ANTITRUST_SHA}" != "${BUILT_SHA:0:${#ANTITRUST_SHA}}" ]; then
-  echo "FATAL: checked-out antitrust SHA $BUILT_SHA != pinned $ANTITRUST_SHA" >&2
-  exit 1
+DEVELOPMENT_REF="$(awk '$1 == "antitrust" {print $2}' "$FINANCIAL_DIR/ci/DEVELOPMENT_REFS")"
+RELEASE_CERTIFICATION="${RELEASE_CERTIFICATION:-false}"
+if [[ "$RELEASE_CERTIFICATION" == true || "$RELEASE_CERTIFICATION" == 1 ]]; then
+  ANTITRUST_REQUESTED_REF="${ANTITRUST_RELEASE_SHA:-}"
+  if [[ ! "$ANTITRUST_REQUESTED_REF" =~ ^[[:xdigit:]]{40}$ ]]; then
+    echo "Release certification requires ANTITRUST_RELEASE_SHA as an explicit full 40-character SHA; mutable refs such as main/refactor are rejected." >&2
+    exit 1
+  fi
+else
+  ANTITRUST_REQUESTED_REF="${ANTITRUST_REF:-$DEVELOPMENT_REF}"
 fi
 
-R CMD INSTALL --no-multiarch --with-keep.source -l "$FINANCIAL_LIB" "$WORKTREE"
+ANTITRUST_SRC="${1:-${ANTITRUST_SRC:-https://github.com/luciu5/antitrust.git}}"
+BUILD_ROOT="${FINANCIAL_OUTPUT_DIR:-$(mktemp -d /tmp/financial-release-check-XXXXXX)}"
+mkdir -p "$BUILD_ROOT" "$BUILD_ROOT/lib" "$BUILD_ROOT/antitrust"
+ANTITRUST_CLONED="false"
 
-# Confirm the pinned build actually exposes the contract surface financial needs.
-R_LIBS="$FINANCIAL_LIB:$(Rscript -e 'cat(paste(.libPaths(), collapse=":"))')" \
-  Rscript -e '
-    suppressMessages(library(antitrust))
-    stopifnot(as.character(packageVersion("antitrust")) >= "0.99.38")
-    need_cls <- c("StructuralFit","AntitrustFit","CounterfactualPath","Antitrust")
-    stopifnot(all(need_cls %in% getClasses("package:antitrust")))
-    need_fn <- c("simulate","simulate_steps","respecify","HHI","ownerToMatrix","ownerToVec")
-    stopifnot(all(need_fn %in% getNamespaceExports("antitrust")))
-    cat("antitrust contract surface OK (", as.character(packageVersion("antitrust")), ")\n")
-  '
+if [[ ! -d "$ANTITRUST_SRC" ]]; then
+  git clone --quiet --no-checkout "$ANTITRUST_SRC" "$BUILD_ROOT/dependency-repo"
+  ANTITRUST_SRC="$BUILD_ROOT/dependency-repo"
+  git -C "$ANTITRUST_SRC" fetch --quiet origin "$ANTITRUST_REQUESTED_REF"
+  git -C "$ANTITRUST_SRC" checkout --quiet --detach FETCH_HEAD
+  ANTITRUST_CLONED="true"
+fi
 
-# --- 2. Build + check financial against the pinned antitrust ---
-export R_LIBS="$FINANCIAL_LIB:$(Rscript -e 'cat(paste(.libPaths(), collapse=":"))')"
-cd "$FINANCIAL_DIR"
-R CMD build . --no-build-vignettes --no-manual
-TARBALL="$(ls -t financial_*.tar.gz | head -1)"
-echo "built: $TARBALL"
+if [[ "$RELEASE_CERTIFICATION" == true || "$RELEASE_CERTIFICATION" == 1 || "$ANTITRUST_CLONED" == true ]]; then
+  RESOLVED_SHA="$(git -C "$ANTITRUST_SRC" rev-parse --verify HEAD)"
+else
+  RESOLVED_SHA=""
+  for candidate in \
+    "$ANTITRUST_REQUESTED_REF" \
+    "refs/remotes/origin/${ANTITRUST_REQUESTED_REF#refs/heads/}" \
+    "refs/heads/${ANTITRUST_REQUESTED_REF#refs/heads/}" \
+    "refs/tags/${ANTITRUST_REQUESTED_REF#refs/tags/}"; do
+    if RESOLVED_SHA="$(git -C "$ANTITRUST_SRC" rev-parse --verify --end-of-options "${candidate}^{commit}" 2>/dev/null)"; then
+      break
+    fi
+    RESOLVED_SHA=""
+  done
+  if [[ -z "$RESOLVED_SHA" ]]; then
+    echo "Could not resolve antitrust development ref '$ANTITRUST_REQUESTED_REF' in local repository $ANTITRUST_SRC" >&2
+    exit 1
+  fi
+fi
+if [[ ( "$RELEASE_CERTIFICATION" == true || "$RELEASE_CERTIFICATION" == 1 ) && "${RESOLVED_SHA,,}" != "${ANTITRUST_REQUESTED_REF,,}" ]]; then
+  echo "Checked-out antitrust SHA $RESOLVED_SHA does not match requested release candidate $ANTITRUST_REQUESTED_REF" >&2
+  exit 1
+fi
+git -c core.autocrlf=false -C "$ANTITRUST_SRC" archive "$RESOLVED_SHA" | tar -x -C "$BUILD_ROOT/antitrust"
 
-# _R_CHECK_FORCE_SUGGESTS_=false: testthat is the only Suggests we require; posterior/cmdstanr are optional.
-_R_CHECK_FORCE_SUGGESTS_=false R CMD check "$TARBALL" --no-manual --no-vignettes --no-build-vignettes
+# R CMD check subprocesses may prioritize R_LIBS_USER over R_LIBS. Keep the
+# selected core first in both variables without hiding third-party packages.
+financial_library_paths="$BUILD_ROOT/lib:$(Rscript --vanilla -e 'cat(paste(.libPaths(), collapse=":"))')"
+export R_LIBS="$financial_library_paths"
+export R_LIBS_USER="$financial_library_paths"
+{
+  echo "release_certification=$RELEASE_CERTIFICATION"
+  echo "antitrust_requested_ref=$ANTITRUST_REQUESTED_REF"
+  echo "antitrust_resolved_sha=$RESOLVED_SHA"
+  echo "financial_source=$FINANCIAL_DIR"
+  echo "financial_extended=${FINANCIAL_EXTENDED_TESTS:-0}"
+  Rscript --vanilla -e 'cat(R.version.string,"\n")'
+  if git -C "$FINANCIAL_DIR" rev-parse HEAD >/dev/null 2>&1; then
+    echo "financial_head=$(git -C "$FINANCIAL_DIR" rev-parse HEAD)"
+    git -C "$FINANCIAL_DIR" diff --binary HEAD | sha256sum | sed 's/^/financial_worktree_diff_sha256=/'
+  fi
+} > "$BUILD_ROOT/provenance.txt"
 
-echo "== CI PASSED against pinned antitrust $ANTITRUST_SHA =="
+R CMD INSTALL --library="$BUILD_ROOT/lib" "$BUILD_ROOT/antitrust"
+Rscript --vanilla - "$BUILD_ROOT/antitrust" "$RELEASE_CERTIFICATION" <<'RSCRIPT'
+args <- commandArgs(trailingOnly = TRUE)
+expected <- unname(read.dcf(file.path(args[[1L]], "DESCRIPTION"))[1L, "Version"])
+actual <- unname(as.character(utils::packageVersion("antitrust")))
+stopifnot(identical(actual, expected),
+          all(c("StructuralFit", "Antitrust", "CounterfactualPath") %in%
+              methods::getClasses(where = asNamespace("antitrust"))))
+if (args[[2L]] %in% c("true", "1")) {
+  stopifnot(utils::packageVersion("antitrust") >= "0.99.43")
+}
+cat("antitrust installed version:", actual, "\n")
+RSCRIPT
+
+cd "$BUILD_ROOT"
+R CMD build --no-manual --no-resave-data "$FINANCIAL_DIR"
+sha256sum financial_*.tar.gz >> "$BUILD_ROOT/provenance.txt"
+_R_CHECK_FORCE_SUGGESTS_=false R CMD check --no-manual financial_*.tar.gz
+echo "Evidence: $BUILD_ROOT"

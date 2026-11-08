@@ -137,8 +137,9 @@ setClass(
             stop("At least", nMarkets + 2, "elements of 'margins' must not be NA in order to calibrate demand parameters")
         }
 
-        if (!any(is.na(object@shareOutParm)) &&
-            (max(object@shareOutParm) <= 0 || length(object@shareOutParm) != 2)) {
+        if (length(object@shareOutParm) != 2 ||
+            !(all(is.na(object@shareOutParm)) ||
+              (all(is.finite(object@shareOutParm)) && all(object@shareOutParm > 0)))) {
             stop("'shareOutParm' must be a length-2 numeric vector with positive values")
         }
 

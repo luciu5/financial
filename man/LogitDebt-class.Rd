@@ -109,3 +109,10 @@ showClass("LogitDebt") # get a detailed description of the class
 \author{
 Charles Taragin \email{ctaragin+antitrustr@gmail.com}
 }
+
+\section{Complete debt calibration margins}{
+Debt calibration currently requires finite margins for every product. Missing
+margins have no implemented conditional-profit identification rule and raise
+\code{financial_equilibrium_failure}, naming affected product positions.
+This restriction does not apply to bank calibration.
+}

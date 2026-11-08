@@ -1,20 +1,22 @@
 #' Equilibrium methods for the `LogitDebt` class
 #'
 #' `calcShares`, `calcSlopes`, `calcPrices`, `calcMC`, `calcMargins` methods
-#' for the `LogitDebt` class, migrated verbatim (parity migration -- the
-#' economics are preserved exactly, not redesigned) from
-#' `MergerDebt/R/Debt-methods.R` (SHA `ea727430`).
+#' for the `LogitDebt` class, migrated from
+#' `MergerDebt/R/Debt-methods.R` (SHA `ea727430`). Numerical repairs evaluate
+#' the inherited default-conditioned equations on their actual support and
+#' reject undefined conditioning or unverified equilibria.
 #'
 #' Per `design/ARCHITECTURE.md`: limited liability lives in the demand/share
 #' layer via the `s0Focal` default-threshold (profit = debt boundary),
 #' reshaping conditional logit shares through partial-Beta integrals. This
-#' is flagged for red-team economic review and is NOT rewritten here.
+#' inherited economic specification remains unchanged; zero-survival regimes
+#' have no defined conditional shares and produce a structured error.
 #'
 #' The legacy per-object `hFocalIntegral`/`gFocalIntegral` closures are
-#' replaced by calls to the shared, oracle-validated
+#' replaced by calls to the shared
 #' `beta_h_focal_integral()`/`beta_g_focal_integral()` helpers from
-#' `shared-beta-moments.R` (verified algebraically identical to the legacy
-#' closures -- same `beta(...)/beta(...) * pbeta(...)` expressions).
+#' `shared-beta-moments.R`, with algebraic moment prefactors that avoid
+#' underflow in ratios of Beta functions.
 #'
 #' @name LogitDebt-methods
 #' @param object an instance of class `LogitDebt`.
@@ -41,12 +43,161 @@
 #' @include DebtClasses.R
 NULL
 
+# Debt conditioning is defined only when there is positive solvent mass.
+# Keep these conditions distinguishable for callers without changing the
+# banking module's shared numerical primitives or inventing default outcomes.
+.debt_stop <- function(kind, message) {
+    stop(structure(list(message = message, call = NULL),
+        class = c(paste0("financial_", kind), "error", "condition")))
+}
+
+# Integrate E[(1-U_m) 1{profit >= debt}] and its U_m-weighted counterpart.
+# Integrating one outside share analytically avoids a discontinuous indicator;
+# integrating the remaining coordinates in probability space resolves highly
+# concentrated Beta densities. Every market retains its own moments.
+.debt_survival_moments <- function(profit, debt, shape, focal = 1L, control = list()) {
+    n <- length(profit)
+    if (any(!is.finite(profit)) || !is.finite(debt) || debt < 0 ||
+        length(shape) != 2L || any(!is.finite(shape)) || any(shape <= 0)) {
+        .debt_stop("equilibrium_failure", "invalid profit, debt or Beta parameters")
+    }
+    if (length(focal) != 1L || !is.finite(focal) || focal != as.integer(focal) ||
+        focal < 1 || focal > n) {
+        .debt_stop("equilibrium_failure", "focal must identify a market")
+    }
+    total <- sum(shape)
+    full_g <- shape[2] / total
+    full_h <- (shape[1] / total) * (shape[2] / (total + 1))
+    # No default occurs with zero debt and nonnegative conditional profits.
+    if (debt == 0 && all(profit >= 0)) {
+        return(list(g = rep(full_g, n), h = rep(full_h, n)))
+    }
+    if (sum(pmax(profit, 0)) <= debt) {
+        .debt_stop("zero_survival", "default conditioning has zero solvent probability")
+    }
+    axis <- if (profit[focal] > 0) focal else which.max(profit)
+    other <- setdiff(seq_len(n), axis)
+    integrand <- function(probability) {
+        weight <- 1
+        if (all(profit >= 0)) {
+            # Map the integration cube into the solvent support. A generic
+            # cubature rule can otherwise miss an entire small simplex and
+            # return a falsely exact zero. The conditional probability limits
+            # supply the Jacobian of this triangular transformation.
+            remaining <- sum(profit) - debt
+            u <- numeric(length(other))
+            for (j in seq_along(other)) {
+                limit <- if (profit[other[j]] == 0) 1 else
+                    max(0, min(1, remaining / profit[other[j]]))
+                probability_limit <- stats::pbeta(limit, shape[1], shape[2])
+                weight <- weight * probability_limit
+                u[j] <- stats::qbeta(probability[j] * probability_limit, shape[1], shape[2])
+                remaining <- remaining - profit[other[j]] * u[j]
+            }
+            cutoff <- remaining / profit[axis]
+        } else {
+            u <- stats::qbeta(probability, shape[1], shape[2])
+            cutoff <- (sum(profit) - debt - sum(u * profit[other])) / profit[axis]
+        }
+        g <- h <- numeric(n)
+        g[axis] <- beta_g_focal_integral(cutoff, shape[1], shape[2])
+        h[axis] <- beta_h_focal_integral(cutoff, shape[1], shape[2])
+        survival <- stats::pbeta(cutoff, shape[1], shape[2])
+        g[other] <- (1 - u) * survival
+        h[other] <- u * g[other]
+        c(g, h) * weight
+    }
+    if (n == 1L) {
+        value <- integrand(numeric())
+    } else {
+        rel <- if (is.null(control$relTol)) 1e-9 else min(control$relTol, 1e-8)
+        abs <- if (is.null(control$absTol)) 1e-11 else min(control$absTol, 1e-10)
+        if (!is.finite(rel) || rel <= 0 || !is.finite(abs) || abs < 0) {
+            .debt_stop("integration_failure", "invalid integration tolerances")
+        }
+        if (n == 2L) {
+            # Split where the analytic cutoff crosses zero and one. Without
+            # support-aware splitting an adaptive rule can see only zeros.
+            boundaries <- c(0, .01, .1, .5, .9, .99, 1)
+            if (profit[other] != 0) {
+                crossing <- (sum(profit) - debt - c(0, profit[axis])) / profit[other]
+                crossing <- crossing[crossing > 0 & crossing < 1]
+                boundaries <- sort(unique(c(boundaries,
+                    stats::pbeta(crossing, shape[1], shape[2]))))
+            }
+            value <- numeric(2L * n)
+            for (k in seq_len(length(boundaries) - 1L)) {
+                if (boundaries[k + 1L] <= boundaries[k]) next
+                for (j in seq_along(value)) {
+                    result <- tryCatch(stats::integrate(function(z) {
+                        probability_limit <- 1
+                        if (all(profit >= 0) && profit[other] > 0) {
+                            limit <- min(1, (sum(profit) - debt) / profit[other])
+                            probability_limit <- stats::pbeta(limit, shape[1], shape[2])
+                        }
+                        u <- stats::qbeta(z * probability_limit, shape[1], shape[2])
+                        cutoff <- (sum(profit) - debt - profit[other] * u) / profit[axis]
+                        market <- if (j <= n) j else j - n
+                        if (market == axis) {
+                            moment <- if (j <= n) beta_g_focal_integral(cutoff, shape[1], shape[2]) else
+                                beta_h_focal_integral(cutoff, shape[1], shape[2])
+                        } else {
+                            moment <- (1 - u) * stats::pbeta(cutoff, shape[1], shape[2])
+                            if (j > n) moment <- moment * u
+                        }
+                        moment * probability_limit
+                    }, boundaries[k], boundaries[k + 1L], rel.tol = rel,
+                        abs.tol = abs, subdivisions = 1000L, stop.on.error = FALSE),
+                        error = function(e) .debt_stop("integration_failure", conditionMessage(e)))
+                    if (!(result$message == "OK" || grepl("roundoff error", result$message, fixed = TRUE)) ||
+                        !is.finite(result$value) ||
+                        !is.finite(result$abs.error) ||
+                        result$abs.error > max(abs, rel * abs(result$value))) {
+                        .debt_stop("integration_failure", paste0("outside-share quadrature failed its error bound: ",
+                            result$message, "; error = ", result$abs.error))
+                    }
+                    value[j] <- value[j] + result$value
+                }
+            }
+        } else {
+            # fDim rows and one column per vectorized cubature sample.
+            result <- tryCatch(cubature::cubintegrate(function(x) {
+                x <- matrix(x, nrow = n - 1L)
+                vapply(seq_len(ncol(x)), function(i) integrand(x[, i]), numeric(2L * n))
+            }, lower = rep(0, n - 1L), upper = rep(1, n - 1L), fDim = 2L * n,
+                nVec = if (is.null(control$nVec)) 1024L else control$nVec,
+                method = if (is.null(control$method)) "hcubature" else control$method,
+                relTol = rel, absTol = abs,
+                maxEval = if (is.null(control$maxEval)) 1e6 else control$maxEval),
+                error = function(e) .debt_stop("integration_failure", conditionMessage(e)))
+            value <- result$integral
+            if (length(value) != 2L * n || any(!is.finite(value)) ||
+                any(!is.finite(result$error)) ||
+                any(result$error > pmax(abs, rel * abs(value))) ||
+                (!is.null(result$returnCode) && result$returnCode != 0)) {
+                .debt_stop("integration_failure", "outside-share cubature failed its error bound")
+            }
+        }
+    }
+    g <- value[seq_len(n)]
+    h <- value[n + seq_len(n)]
+    if (any(!is.finite(value)) || any(g <= 0) || any(h < 0) || any(h > g)) {
+        .debt_stop("integration_failure", "positive solvent mass could not be resolved numerically")
+    }
+    list(g = g, h = h)
+}
+
 #' @rdname LogitDebt-methods
 #' @export
 setMethod(
     f = "calcSlopes",
     signature = "LogitDebt",
     definition = function(object) {
+        if (any(!is.finite(object@margins))) {
+            .debt_stop("equilibrium_failure", paste0(
+                "debt calibration requires complete finite 'margins'; product positions: ",
+                paste(which(!is.finite(object@margins)), collapse = ", ")))
+        }
         nMarkets <- length(unique(object@marketID))
 
         ownerPre <- object@ownerPre
@@ -107,7 +258,7 @@ setMethod(
 
             marginsCand <- calcMargins(thisobj, preMerger = TRUE, level = TRUE)
 
-            sOutMean <- sapply(ownerPreMat, s0Focal, sOut = outParm[1] / sum(outParm[1]))
+            sOutMean <- sapply(ownerPreMat, s0Focal, sOut = outParm[1] / sum(outParm))
             sOutMean[sOutMean < 0] <- 0
             sOutMean[sOutMean > 1] <- 1
 
@@ -118,7 +269,12 @@ setMethod(
                 m3 <- stats::var(sOutMean, na.rm = TRUE) - prod(outParm) / (sum(outParm)^2 * (sum(outParm) + 1)) # variance of Beta
             }
 
-            measure <- sum((c(m1, m2, m3) * 100)^2, na.rm = TRUE)
+            residual <- if (all(is.na(shareOutParm))) c(m1, m2, m3) else m1
+            residual <- residual[c(!is.na(as.numeric(margins)), rep(TRUE, length(residual) - length(margins)))]
+            if (any(!is.finite(residual))) {
+                .debt_stop("equilibrium_failure", "non-finite demand calibration residual")
+            }
+            measure <- sum((residual * 100)^2)
 
             return(measure)
         }
@@ -139,6 +295,25 @@ setMethod(
             control = object@control.slopes
         )
 
+        if (minTheta$convergence != 0 && all(is.finite(minTheta$par))) {
+            # Support boundaries can make finite-difference L-BFGS line
+            # searches fail. Re-optimize the same criterion without gradients
+            # in positive magnitudes; retain exactly the same parameter bounds.
+            sign <- c(rep(-1, nMarkets), rep(1, length(minTheta$par) - nMarkets))
+            objective <- function(log_parameter) {
+                theta <- sign * exp(log_parameter)
+                if (any(!is.finite(theta)) || any(theta < lowerB | theta > upperB)) return(1e30)
+                minD(theta)
+            }
+            refined <- stats::optim(log(abs(minTheta$par)), objective,
+                method = "Nelder-Mead", control = list(maxit = 5000, reltol = 1e-10))
+            minTheta <- list(par = sign * exp(refined$par), value = refined$value,
+                convergence = refined$convergence)
+        }
+        if (minTheta$convergence != 0 || any(!is.finite(minTheta$par)) ||
+            !is.finite(minTheta$value)) {
+            .debt_stop("equilibrium_failure", "demand calibration did not converge to finite parameters")
+        }
         minAlpha <- minTheta$par[1:nMarkets]
         minOutParm <- minTheta$par[-(1:nMarkets)]
         meanval <- log(shares) - log(shares[, idx]) - minAlpha * (prices - prices[, idx])
@@ -205,219 +380,27 @@ setMethod(
             owner <- matrix(as.character(owner), nrow = nMarkets)[1, ]
         }
 
-        lowerB <- rep(0, nMarkets - 1)
-        upperB <- rep(1, nMarkets - 1)
-
-        bDens <- function(u, ...) {
-            stats::dbeta(u, shape1 = shareOutParm[1], shape2 = shareOutParm[2], ...)
-        }
-        bProb <- function(u, ...) {
-            stats::pbeta(u, shape1 = shareOutParm[1], lower.tail = TRUE, shape2 = shareOutParm[2], ...)
-        }
-
-        integrateDerivOtherFun <- function(u, f, pre = preMerger) {
-            s0 <- s0Focal(u, f, pre)
-            u * (1 - u) * bProb(s0)
-        }
-        integrateInsideOtherFun <- function(u, f, pre = preMerger) {
-            s0 <- s0Focal(u, f, pre)
-            (1 - u) * bProb(s0)
-        }
-
-        s0Focal <- function(sOut = rep(NA, nMarkets), i, pre = preMerger, n = nMarkets, l = focal) {
-            ## allow firm index i to be a vector of length > 1.
-            if (n == 1) {
-                res <- 1 - debt[i] / profitsCond[, i]
-                return(res)
-            }
-
-            res <- (sum(profitsCond[, i, drop = FALSE]) - debt[i]) / profitsCond[l, i, drop = TRUE] -
-                sum(as.vector(sOut) * profitsCond[-l, i, drop = FALSE]) / profitsCond[l, i, drop = TRUE]
-
-            return(res)
-        }
-
-        if (nMarkets > 1) theseStates <- expand.grid(lapply(1:(nMarkets - 1), function(x) 1:0))
-
         margin <- prices - mc
-
-        sCond <- exp(mval + slopes * prices)
-        if (nMarkets > 1) {
-            sCond <- sCond / rowSums(sCond)
-        } else {
-            sCond <- sCond / sum(sCond)
-            sCond <- t(as.matrix(sCond))
+        eta <- matrix(mval + slopes * prices, nrow = nMarkets)
+        if (any(!is.finite(eta))) .debt_stop("equilibrium_failure", "non-finite conditional utility")
+        eta <- eta - apply(eta, 1, max)
+        sCond <- exp(eta)
+        sCond <- sCond / rowSums(sCond)
+        # Conditional demand has no default conditioning or integration.
+        if (insideOnly && !outSideOnly) {
+            sharesCand <- as.numeric(sCond)
+            names(sharesCand) <- object@labels
+            return(sharesCand)
         }
-
-        profitsCond <- M * margin * sCond
-
-        ## aggregate profits to the firm level
-        profitsCond <- t(rowsum(t(profitsCond), group = owner, na.rm = TRUE))
-
-        if (nMarkets == 1) {
-            hFun <- sapply(firmVec, function(q) {
-                s0_focal <- s0Focal(NA, q)
-                beta_h_focal_integral(s0_focal, shape1 = shareOutParm[1], shape2 = shareOutParm[2])
-            })
-            gFun <- sapply(firmVec, function(q) {
-                s0_focal <- s0Focal(NA, q)
-                beta_g_focal_integral(s0_focal, shape1 = shareOutParm[1], shape2 = shareOutParm[2])
-            })
-        } else if (nMarkets >= 2 && density == "uniform") {
-            hFun <- sapply(firmVec, function(q, pre = preMerger) {
-                s0_focal <- apply(theseStates, 1, s0Focal, i = q)
-
-                betaStates <- 6 / factorial(nMarkets + 1) * s0_focal^(nMarkets + 1)
-                betaStates <- beta(2, 2) * (betaStates - 12 / factorial(nMarkets + 2) * s0_focal^(nMarkets + 2))
-
-                st <- ncol(theseStates)
-                thisTheseStates <- theseStates
-                while (st >= 1) {
-                    lastState <- thisTheseStates[, st]
-                    betaStates <- betaStates[lastState == 1] - betaStates[lastState == 0]
-                    thisTheseStates <- unique(thisTheseStates[, -st, drop = FALSE])
-                    st <- st - 1
-                }
-                thisProfits <- rowSums(profitsCond[, q, drop = FALSE])
-
-                res <- (-1)^(nMarkets - 1) * (prod(thisProfits[-1]) / (thisProfits[1]^(nMarkets - 1))) * betaStates
-
-                return(res)
-            })
-
-            gFun <- sapply(firmVec, function(q, pre = preMerger) {
-                s0_focal <- apply(theseStates, 1, s0Focal, i = q)
-                betaStates <- 2 / factorial(nMarkets) * s0_focal^(nMarkets)
-                betaStates <- beta(1, 2) * (betaStates - 2 / factorial(nMarkets + 1) * s0_focal^(nMarkets + 1))
-
-                st <- ncol(theseStates)
-                thisTheseStates <- theseStates
-                while (st >= 1) {
-                    lastState <- thisTheseStates[, st]
-                    betaStates <- betaStates[lastState == 1] - betaStates[lastState == 0]
-                    thisTheseStates <- unique(thisTheseStates[, -st, drop = FALSE])
-                    st <- st - 1
-                }
-
-                thisProfits <- rowSums(profitsCond[, q, drop = FALSE])
-
-                res <- (-1)^(nMarkets + 1) * (prod(thisProfits[-1]) / (thisProfits[1]^(nMarkets - 1))) * betaStates
-                return(res)
-            })
-
-            if (nMarkets > 1) {
-                otherFun <- function(q, wgt = .5, pre = preMerger) {
-                    theseStatesLocal <- theseStates[theseStates$Var1 == 1, , drop = FALSE]
-
-                    s0_focal <- apply(theseStatesLocal, 1, s0Focal, i = q)
-                    if (!pre && q == 2) q <- 2:1
-                    thisProfits <- rowSums(profitsCond[, q, drop = FALSE])
-                    betaStates <- s0_focal^(nMarkets - 1) / factorial(nMarkets - 1)
-
-                    st <- ncol(theseStatesLocal)
-                    while (st >= 2) {
-                        lastState <- theseStatesLocal[, st]
-                        betaStates <- betaStates[lastState == 1] - betaStates[lastState == 0]
-                        theseStatesLocal <- unique(theseStatesLocal[, -st, drop = FALSE])
-                        st <- st - 1
-                    }
-
-                    if (nMarkets == 2) {
-                        res <- betaStates
-                    } else {
-                        res <- (-1)^(nMarkets - 1) * (prod(thisProfits[-(1:2)]) / (thisProfits[1]^(nMarkets - 2))) * betaStates
-                    }
-
-                    res <- res + wgt * (thisProfits[2] / thisProfits[1])
-                    return(res)
-                }
-
-                tFun <- beta(2, 2) * sapply(firmVec, otherFun, wgt = 1 / 2)
-                rFun <- beta(1, 2) * sapply(firmVec, otherFun, wgt = 2 / 3)
-            }
-        } else {
-            hFun <-
-                sapply(firmVec, function(g) {
-                    cubature::cubintegrate(function(x, f = g) {
-                        x <- as.matrix(x)
-                        matrix(apply(x, 2, function(s) {
-                            s0_focal <- s0Focal(s, f)
-                            res <- beta_h_focal_integral(s0_focal, shape1 = shareOutParm[1], shape2 = shareOutParm[2]) * prod(bDens(s))
-                            return(res)
-                        }), ncol = col(x))
-                    },
-                    lower = lowerB, upper = upperB, nVec = control.cub$nVec,
-                    method = control.cub$method,
-                    relTol = control.cub$relTol, absTol = control.cub$absTol,
-                    maxEval = control.cub$maxEval
-                    )$integral
-                })
-
-            gFun <-
-                sapply(firmVec, function(g) {
-                    cubature::cubintegrate(function(x, f = g) {
-                        x <- as.matrix(x)
-                        matrix(apply(x, 2, function(s) {
-                            s0_focal <- s0Focal(s, f)
-
-                            beta_g_focal_integral(s0_focal, shape1 = shareOutParm[1], shape2 = shareOutParm[2]) * prod(bDens(s))
-                        }), ncol = col(x))
-                    },
-                    lower = lowerB, upper = upperB, nVec = control.cub$nVec,
-                    method = control.cub$method,
-                    relTol = control.cub$relTol, absTol = control.cub$absTol,
-                    maxEval = control.cub$maxEval
-                    )$integral
-                })
-
-            if (nMarkets > 1) {
-                tFun <-
-                    sapply(firmVec, function(g) {
-                        cubature::cubintegrate(function(x, f = g) {
-                            x <- as.matrix(x)
-                            matrix(apply(x, 2, function(s) {
-                                integrateDerivOtherFun(s, f) * prod(bDens(s))
-                            }), ncol = col(x))
-                        },
-                        fDim = 1,
-                        lower = lowerB, upper = upperB, nVec = control.cub$nVec,
-                        method = control.cub$method,
-                        relTol = control.cub$relTol, absTol = control.cub$absTol,
-                        maxEval = control.cub$maxEval
-                        )$integral
-                    })
-
-                rFun <-
-                    sapply(firmVec, function(g) {
-                        cubature::cubintegrate(function(x, f = g) {
-                            x <- as.matrix(x)
-                            matrix(apply(x, 2, function(s) {
-                                integrateInsideOtherFun(s, f) * prod(bDens(s))
-                            }), ncol = col(x))
-                        },
-                        fDim = 1,
-                        lower = lowerB, upper = upperB, nVec = control.cub$nVec,
-                        method = control.cub$method,
-                        relTol = control.cub$relTol, absTol = control.cub$absTol,
-                        maxEval = control.cub$maxEval
-                        )$integral
-                    })
-            }
-        }
-
-        if (nMarkets > 1) {
-            shareOutOther <- tFun / rFun
-            shareOutOther[shareOutOther > 1] <- 1
-            shareOutOther[shareOutOther < 0] <- 0
-        }
-
-        shareOutFocal <- hFun / gFun
-        shareOutFocal[shareOutFocal > 1] <- 1
-        shareOutFocal[shareOutFocal < 0] <- 0
-
-        SharesOutInt <- matrix(NA, nrow = nMarkets, ncol = nFirms, dimnames = list(1:nMarkets, firmVec))
-        SharesOutInt[focal, ] <- shareOutFocal
-        if (nMarkets > 1) SharesOutInt[-focal, ] <- shareOutOther
+        profitsCond <- M * matrix(margin, nrow = nMarkets) * sCond
+        profitsCond <- t(rowsum(t(profitsCond), group = owner, reorder = TRUE))
+        SharesOutInt <- vapply(firmVec, function(firm) {
+            moments <- .debt_survival_moments(profitsCond[, firm], debt[firm],
+                shareOutParm, focal, control.cub)
+            moments$h / moments$g
+        }, numeric(nMarkets))
+        SharesOutInt <- matrix(SharesOutInt, nrow = nMarkets,
+            dimnames = list(seq_len(nMarkets), firmVec))
 
         sharesCand <- sCond
         if (outSideOnly) {
@@ -469,11 +452,35 @@ setMethod(
             return(thisFOC)
         }
 
+        # Validate the initial economic state before invoking a solver, which
+        # otherwise can interpret missing firm shares as a zero residual.
+        initial <- FOC(priceStart)
+        if (any(!is.finite(initial))) {
+            .debt_stop("equilibrium_failure", "non-finite initial price residual")
+        }
         ## Find price changes that set FOCs equal to 0
         minResult <- BB::BBsolve(priceStart, FOC, quiet = TRUE, control = object@control.equ, ...)
 
-        if (minResult$convergence != 0) {
-            warning("'calcPrices' nonlinear solver may not have successfully converged. 'BBsolve' reports: '", minResult$message, "'")
+        residual <- FOC(minResult$par)
+        tol <- object@control.equ$tol
+        if (is.null(tol)) tol <- 1e-7
+        tol <- min(tol, 1e-7)
+        if (all(is.finite(residual)) && max(abs(residual)) > tol) {
+            refined <- tryCatch(nleqslv::nleqslv(minResult$par, FOC,
+                method = "Newton", control = list(ftol = tol * .1, maxit = 500)),
+                error = function(e) NULL)
+            if (!is.null(refined) && all(is.finite(refined$fvec)) &&
+                max(abs(refined$fvec)) < max(abs(residual))) {
+                minResult$par <- refined$x
+                residual <- FOC(refined$x)
+                minResult$convergence <- if (refined$termcd == 1L) 0L else 1L
+            }
+        }
+        if (minResult$convergence != 0 || any(!is.finite(minResult$par)) ||
+            any(!is.finite(residual)) || max(abs(residual)) > tol) {
+            .debt_stop("equilibrium_failure", paste0(
+                "price solver did not verify a finite equilibrium: ", minResult$message,
+                "; residual = ", max(abs(residual))))
         }
 
         if (isMax) {
@@ -509,13 +516,17 @@ setMethod(
         if (preMerger) {
             object@pricePre <- object@prices
 
-            startMC <- -1 * (object@margins - object@prices)
+            startMC <- object@prices * (1 - object@margins)
             startMC[is.na(startMC)] <- max(startMC, na.rm = TRUE)
 
             minD <- function(c) {
                 object@mcPre <- c
-                thisMargin <- calcMargins(object, preMerger = TRUE, level = TRUE)
-
+                thisMargin <- tryCatch(calcMargins(object, preMerger = TRUE, level = TRUE),
+                    financial_zero_survival = function(e) NULL)
+                # A trial cost outside solvent support is an infeasible
+                # optimizer candidate. The accepted result is re-evaluated
+                # below without this penalty or any missing-value removal.
+                if (is.null(thisMargin)) return(1e12 + sum((c - startMC)^2))
                 measure <- object@pricePre - c - thisMargin
                 measure <- (measure / object@pricePre)^2
                 return(sum(measure))
@@ -524,9 +535,17 @@ setMethod(
             lowerB <- rep(0, length(startMC))
             upperB <- object@prices
 
-            minMC <- stats::optim(startMC, minD, method = "L-BFGS-B", lower = lowerB, upper = upperB)
+            minMC <- stats::optim(startMC, minD, method = "L-BFGS-B", lower = lowerB, upper = upperB,
+                control = list(factr = 1e3, pgtol = 1e-10, maxit = 1000))
 
             mc <- minMC$par
+            object@mcPre <- mc
+            residual <- object@pricePre - mc - calcMargins(object, TRUE, level = TRUE)
+            if (minMC$convergence != 0 || any(!is.finite(residual)) ||
+                max(abs(residual / object@pricePre)) > 1e-6) {
+                .debt_stop("equilibrium_failure", paste0("marginal-cost calibration did not verify a finite equilibrium; residual = ",
+                    max(abs(residual / object@pricePre))))
+            }
         }
 
         if (!preMerger) {
@@ -564,10 +583,10 @@ setMethod(
             prices <- matrix(prices, nMarkets)
             owner <- matrix(owner, nMarkets)[1, ]
 
-            shares <- t(rowsum(t(shares), group = owner, na.rm = TRUE))
+            shares <- t(rowsum(t(shares), group = owner))
             shares <- shares[, owner]
         } else {
-            shares <- tapply(shares, owner, sum, na.rm = TRUE)
+            shares <- tapply(shares, owner, sum)
             shares <- shares[owner]
         }
 

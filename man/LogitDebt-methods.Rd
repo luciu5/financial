@@ -58,19 +58,21 @@ corresponding named numeric vector (or, for \code{calcShares(outSideOnly = TRUE)
 }
 \description{
 \code{calcShares}, \code{calcSlopes}, \code{calcPrices}, \code{calcMC}, \code{calcMargins} methods
-for the \code{LogitDebt} class, migrated verbatim (parity migration -- the
-economics are preserved exactly, not redesigned) from
-\code{MergerDebt/R/Debt-methods.R} (SHA \code{ea727430}).
+for the \code{LogitDebt} class, migrated from
+\code{MergerDebt/R/Debt-methods.R} (SHA \code{ea727430}). Numerical repairs
+evaluate the inherited default-conditioned equations on their actual support
+and reject undefined conditioning or unverified equilibria.
 }
 \details{
 Per \code{design/ARCHITECTURE.md}: limited liability lives in the demand/share
 layer via the \code{s0Focal} default-threshold (profit = debt boundary),
-reshaping conditional logit shares through partial-Beta integrals. This
-is flagged for red-team economic review and is NOT rewritten here.
+reshaping conditional logit shares through partial-Beta integrals. The
+inherited economic specification remains unchanged; zero-survival regimes
+have no defined conditional shares and produce a structured error.
 
 The legacy per-object \code{hFocalIntegral}/\code{gFocalIntegral} closures are
-replaced by calls to the shared, oracle-validated
+replaced by calls to the shared
 \code{beta_h_focal_integral()}/\code{beta_g_focal_integral()} helpers from
-\code{shared-beta-moments.R} (verified algebraically identical to the legacy
-closures -- same \code{beta(...)/beta(...) * pbeta(...)} expressions).
+\code{shared-beta-moments.R}, with algebraic moment prefactors that avoid
+underflow in ratios of Beta functions.
 }

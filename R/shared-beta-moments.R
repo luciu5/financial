@@ -87,16 +87,16 @@ beta_lower_second_moment <- function(cutoff, shape1, shape2) {
 ## partial-Beta-moment primitive expressed via the beta() normalization:
 ##   h(u) = E[X * 1{X <= u}] shape-shifted form = beta(s1+1,s2+1)/beta(s1,s2) * pbeta(u, s1+1, s2+1)
 ##   g(u) = beta(s1,s2+1)/beta(s1,s2) * pbeta(u, s1, s2+1)
-## Kept as explicit functions (not re-expressed via beta_lower_first_moment) so the
-## debt module migrates 1:1 against its golden-master oracle; equivalence to the
-## (mu,phi) helpers above is asserted in tests.
+## Algebraic shape prefactors replace the ratios of Beta functions so large
+## valid shapes do not yield 0/0. These are the same truncated moments; the
+## banking helpers and their economic parameterization remain unchanged.
 
 beta_h_focal_integral <- function(u, shape1, shape2) {
-  beta(shape1 + 1, shape2 + 1) / beta(shape1, shape2) *
+  (shape1 / (shape1 + shape2)) * (shape2 / (shape1 + shape2 + 1)) *
     pbeta(u, shape1 = shape1 + 1, shape2 = shape2 + 1, lower.tail = TRUE)
 }
 
 beta_g_focal_integral <- function(u, shape1, shape2) {
-  beta(shape1, shape2 + 1) / beta(shape1, shape2) *
+  shape2 / (shape1 + shape2) *
     pbeta(u, shape1 = shape1, shape2 = shape2 + 1, lower.tail = TRUE)
 }

@@ -80,6 +80,12 @@
 #'   passed to the calibration routine optimizer (the `calcSlopes` method).
 #' @param control.equ A list of [BB::BBsolve()] control parameters passed to
 #'   the non-linear equation solver (the `calcPrices` method).
+#' @section Calibration inputs:
+#' Debt calibration currently requires a finite margin for every product.
+#' Missing margins cannot identify the conditional firm-profit integrals and
+#' raise a `financial_equilibrium_failure` error naming product positions.
+#' This restriction applies to the debt family, not bank calibration.
+#'
 #' @param control.cub A list of [cubature::cubintegrate()] control
 #'   parameters used for the multi-market, non-uniform-density outside-share
 #'   integration.
@@ -168,6 +174,11 @@ logit.debt <- function(prices, shares, margins,
     labels,
     ...) {
     density <- match.arg(density)
+    if (any(!is.finite(margins))) {
+        .debt_stop("equilibrium_failure", paste0(
+            "debt calibration requires complete finite 'margins'; missing or non-finite product positions: ",
+            paste(which(!is.finite(margins)), collapse = ", ")))
+    }
     if (missing(shareOutParm)) shareOutParm <- rep(NA_real_, 2)
     if (density == "uniform") shareOutParm <- rep(1, 2)
 

@@ -10,40 +10,24 @@
 \arguments{
 \item{object}{A \code{DebtFit}.}
 
-\item{ownerPost}{A post-merger ownership vector, matrix, or \code{NULL} to
+\item{ownerPost}{A post-merger ownership vector or \code{NULL} to
 reuse \code{object}'s currently fitted post-merger ownership.}
 
-\item{debtPost}{Optional post-merger firm-level debt vector (length
-matching the fitted products); default reuses the currently fitted
+\item{debtPost}{Optional post-merger product-row payment contributions,
+summed by post-merger owner; default reuses the currently fitted
 \code{debtPost}.}
 
-\item{...}{Additional arguments forwarded to \code{\link[=calcPrices]{calcPrices()}} (e.g.
+\item{...}{Additional arguments forwarded to \code{\link[antitrust:calcPrices]{calcPrices()}} (e.g.
 \code{isMax}).}
 }
 \value{
 An updated \code{DebtFit}.
 }
 \description{
-Lifecycle methods for the \code{FinancialFit} generics on \code{DebtFit}, satisfying
-\code{design/ARCHITECTURE.md}'s "Lifecycle methods implemented only where
-economically meaningful; unsupported ops error explicitly."
-}
-\details{
-\code{simulate(DebtFit, ownerPost, ...)} re-solves the debt model at a new
-post-merger ownership structure (and, optionally, new post-merger debt via
-\code{debtPost}), returning an updated \code{DebtFit}. This is the exposure-only
-counterfactual path described in \code{design/ARCHITECTURE.md}'s
-"Counterfactual uncertainty response": ownership/leverage change; the
-Beta outside-share law (\code{shareOutParm}/\code{density}) is held fixed unless the
-caller explicitly opts in via \code{shareOutParm}.
-
-\code{simulate_steps()} and \code{respecify()} are NOT implemented for \code{DebtFit} in
-this migration wave: sequential multi-step \code{CounterfactualPath} resume
-and cross-family respecification are real features called for by
-\code{design/ARCHITECTURE.md} but require the primitive-shift \code{uncertainty}
-step type and cumulative-uncertainty bookkeeping described there, which
-is explicitly out of scope for a parity migration of the existing
-single-step legacy economics. They fail loudly per the \code{FinancialFit}
-default-reject contract (inherited unchanged; see below) rather than
-silently no-oping.
+Re-solve one ownership/payment exposure scenario under the calibrated demand
+and Beta outside-share law. \code{simulate()} returns a \code{DebtFit} with price and
+default/survival diagnostics; \code{simulate_steps()} and \code{respecify()} deliberately
+error because sequential paths and primitive respecification are unsupported.
+The diagnostics use post-minus-pre differences, with missing comparisons for
+absorbed firm labels. See the debt task guide for the comparison baseline.
 }

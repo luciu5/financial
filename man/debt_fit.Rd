@@ -16,16 +16,13 @@ slopes and \code{shareOutParm}, and \code{observed} holds the identifying
 pre-merger inputs.
 }
 \description{
-\code{debt_fit()} is \code{financial}'s own constructor (per
-\code{design/ARCHITECTURE.md}: "\code{financial} ships its own constructors
-\code{debt_fit()}/\code{bank_fit()}") for the \code{DebtFit} \code{FinancialFit} subclass.
-Rather than deriving \code{LogitDebt} from both \code{Logit} and \code{FinancialFit}
-(verified mechanically possible but not the chosen design -- see the
-design note in \code{DebtClasses.R} and this migration's final report), it
-composes: \code{debt_fit()} calls \code{\link[=logit.debt]{logit.debt()}} to build the calibrated
-legacy \code{LogitDebt} object exactly as before, then wraps it in a \code{DebtFit}
-whose \code{model} slot holds that object. This mirrors the same
-\verb{StructuralFit@model <- <legacy S4 object>} composition pattern
-\code{antitrust} itself uses for \code{AntitrustFit} (see \code{calibrate()} in
-\code{antitrust}'s \code{ModelArchitecture.R}).
+Calibrate the debt/limited-liability model and solve the supplied post-merger
+scenario. The returned \code{DebtFit} stores the inner \code{LogitDebt} model in \verb{@model}
+and can be passed to \code{simulate()} for a single fitted-state scenario. This is
+a separate constructor route from antitrust's \code{calibrate()}/\code{specify()} registry.
+}
+\details{
+For payment units, prices and default/survival interpretation, read
+\code{vignette("debt-default-merger", package = "financial")} when available,
+or follow the source-guide link in the repository README.
 }

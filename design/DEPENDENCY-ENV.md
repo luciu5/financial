@@ -1,4 +1,8 @@
-# Dependency environment (pinned)
+# Dependency environment (historical pinned capture)
+
+> Historical development record from September2026, superseded by
+> [the current README](../README.md). The retired refactor branch and personal
+> library path below are not installation or ordinary-use requirements.
 
 `financial` targets the **antitrust refactor branch**, NOT the globally-installed master.
 

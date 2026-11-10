@@ -1,28 +1,23 @@
 #' Bank merger counterfactual: constructor, posterior mapping, uncertainty deltas
 #'
-#' `bank_fit()` is `financial`'s own constructor (per
-#' `design/ARCHITECTURE.md`: "`financial` ships its own constructors
-#' `debt_fit()`/`bank_fit()`") for the `BankFit` `FinancialFit` subclass. It
-#' implements the two-argument `bank_fit(parameters =, data =)` contract from
-#' `design/STAN-BANKFIT-MAPPING.md`: `parameters` supplies (one or more)
-#' Stan posterior draws of the 15-parameter minimal sufficient set;
-#' `data` supplies everything the deterministic solver needs that is NOT in
-#' the posterior (design matrices, market/bank identifiers, balance-sheet
-#' observables), mirroring legacy `load_merger_inputs()`
-#' (`merger_common.R:5-19`).
+#' Construct a bank fit with [bank_fit()] from supplied numeric point estimates
+#' or draws, then use `simulate()` for one merger. No estimation is performed by
+#' this workflow. Both post scenarios use the same ownership: competition-only
+#' holds baseline liquidity wedges fixed and the full merger permits pooling.
 #'
-#' `simulate(BankFit, ownerPost = ...)` runs the merger counterfactual
-#' (parity migration of `simulate_merger_exposure.R`'s `STEP 5`: solve
-#' `"Competition-only"` and `"Full Merger"` post-merger scenarios). For a
-#' multi-draw posterior, it MAPS OVER every draw and returns posterior
-#' summaries (mean/sd/q05/q50/q95, plus `posterior_prob_positive`/
-#' `posterior_odds_positive` for scenario-DIFFERENCE quantities) per
-#' `design/STAN-BANKFIT-MAPPING.md`'s aggregation recipe
-#' (`gather_merger_results.R:119-188`). A single draw / point estimate
-#' returns the point result (no posterior summary columns) -- this is the
-#' "single-draw == point-estimate round trip" required by the migration
-#' brief, and holds by construction since `bank_fit()` and `simulate()` do
-#' not branch on draw count until the AGGREGATION step.
+#' `@diagnostics$counterfactual$scenario_diff` reports full merger minus
+#' competition-only for changed banks. `uncertainty_delta` instead compares the
+#' full merger with each changed bank's own frozen pre-merger reference.
+#' Rate inputs/outputs are decimals; multiply a rate difference by 10000 for
+#' basis points. Loan and deposit rate increases have different customer meanings.
+#'
+#' For one supplied draw, each quantity is a list with `value` and `n_draws`.
+#' Multiple draws give mean/sd/q05/q50/q95/n_draws and difference-sign summaries.
+#' `@model` and `@model@pricePost` contain the first draw's solution, not a
+#' posterior mean. Use aggregated diagnostics for multi-draw reporting.
+#'
+#' Read `vignette("bank-liquidity-merger", package = "financial")` when available,
+#' or follow the source-guide link in the repository README.
 #'
 #' @name BankFit-lifecycle
 #' @include BankEquilibrium.R
@@ -242,7 +237,7 @@ NULL
   prelim
 }
 
-#' Construct a `FinancialFit`-compatible bank fit from Stan posterior draws
+#' Construct a bank fit from point estimates or posterior draws
 #'
 #' Two-argument constructor per `design/STAN-BANKFIT-MAPPING.md`:
 #' `parameters` supplies the 15-parameter minimal sufficient Stan draw set
@@ -257,7 +252,10 @@ NULL
 #' see `normalize_bank_draws()` (internal)); `data` supplies everything the
 #' deterministic solver needs that is NOT in the posterior.
 #'
-#' @param parameters See `normalize_bank_draws()` (internal) for the accepted shapes.
+#' @param parameters A named numeric vector (point estimate), or a matrix or
+#'   data.frame with one draw per row and named parameter columns. CmdStanR and
+#'   `posterior` draw objects are accepted when `posterior` is installed; no
+#'   Stan toolchain is required for vector/matrix/data.frame inputs.
 #' @param data A list with the following elements (row-level fields have
 #'   one entry per bank-market observation; bank-level fields have one
 #'   entry per unique bank, either named by bank id or given in
@@ -267,7 +265,10 @@ NULL
 #'     \item{`s_cond_L`, `s_cond_D`}{Row-level baseline conditional
 #'       loan/deposit shares (renormalized to sum to 1 within market).}
 #'     \item{`market_size_L`, `market_size_D`}{Row-level market size.}
-#'     \item{`r_L`, `r_D`}{Row-level observed baseline loan/deposit rates.}
+#'     \item{`r_L`, `r_D`}{Row-level observed baseline loan/deposit rates.
+#'       Baseline bank rates use side-specific expected-quantity footprint
+#'       weights across these rows, not an unweighted market average. The solver
+#'       sets one loan and one deposit rate per bank, common across its markets.}
 #'     \item{`r_f`}{Row-level risk-free rate.}
 #'     \item{`W_L`, `W_D`}{Row-level cost-shifter design matrices (`N x
 #'       K_cost`; `K_cost` may be 0, i.e. zero columns).}
@@ -286,6 +287,8 @@ NULL
 #'     \item{`Z_psi`}{A `G x K_psi` design matrix, one row per distinct
 #'       `group_id`, in `sort(unique(group_id))` order.}
 #'     \item{`equity`, `liquid_assets`}{Bank-level.}
+#'     \item{`assets`}{Optional bank-level total assets used by the default
+#'       asset-weighted pooling rule. If omitted, it uses liquid assets plus equity as a proxy and warns.}
 #'     \item{`liquidity_pressure`}{Optional bank-level override for the mean
 #'       liquidity-stress state; default `NULL` uses
 #'       `calc_portfolio_liquidity()`'s own default.}
@@ -301,6 +304,36 @@ NULL
 #' @return A `BankFit` object. `@model` holds the `BankMarket` built from the
 #'   FIRST draw (or the point estimate); `@diagnostics$draws` holds every
 #'   draw's `BankMarket` (length 1 for a point estimate/single draw).
+#' @examples
+#' bank_id <- rep(c("A", "B", "C"), each = 2)
+#' data <- list(
+#'   bank_id = bank_id, market_id = rep(c("m1", "m2"), 3),
+#'   s_cond_L = c(.4, .3, .35, .4, .25, .3),
+#'   s_cond_D = c(.3, .35, .4, .3, .3, .35),
+#'   market_size_L = rep(100, 6), market_size_D = rep(120, 6),
+#'   r_L = rep(.05, 6), r_D = rep(.02, 6), r_f = rep(.03, 6),
+#'   W_L = matrix(0, 6, 0), W_D = matrix(0, 6, 0),
+#'   H_out_L = matrix(1, 6, 1), H_out_D = matrix(1, 6, 1),
+#'   out_iv_L = rep(0, 6), out_iv_D = rep(0, 6),
+#'   market_state_region_id = rep(1L, 6), group_id = bank_id,
+#'   Z_psi = matrix(0, 3, 1), equity = c(A = 10, B = 8, C = 12),
+#'   liquid_assets = c(A = 5, B = 4, C = 6), assets = c(A = 150, B = 120, C = 180)
+#' )
+#' parameters <- c(
+#'   alpha_bar_L = log(3), alpha_bar_D = log(3),
+#'   sigma_alpha_state_L = 0, sigma_alpha_state_D = 0,
+#'   `alpha_state_raw_L[1]` = 0, `alpha_state_raw_D[1]` = 0,
+#'   `theta_out_L[1]` = 0, `theta_out_D[1]` = 0,
+#'   alpha_out_L = -1.7, alpha_out_D = -1.7,
+#'   log_phi_bar_L = log(15), log_phi_bar_D = log(15), gamma_psi = 0
+#' )
+#' bank <- bank_fit(parameters, data)
+#' merger <- simulate(bank, ownerPost = c(A = "AB", B = "AB", C = "C"))
+#' merger@diagnostics$counterfactual$rates$full_L
+#' merger@diagnostics$counterfactual$scenario_diff
+#' @seealso `vignette("bank-liquidity-merger", package = "financial")`
+#'   for a point-estimate task and interpretation; the repository README links
+#'   source guides when rendered articles are not installed.
 #' @export
 bank_fit <- function(parameters, data) {
   draws_mat <- normalize_bank_draws(parameters)
@@ -411,7 +444,7 @@ bank_fit <- function(parameters, data) {
       switch(model@psiRule,
         acquirer = model@psi[g_members[1]], target = model@psi[g_members[length(g_members)]],
         min = min(model@psi[g_members]),
-        asset_weighted = stats::weighted.mean(model@psi[g_members], w = pmax(model@liquidAssets[g_members] + model@equity[g_members], 1)),
+        asset_weighted = .bank_asset_weighted_psi(model, g_members),
         stop("Invalid psiRule: ", model@psiRule)
       )
     }
@@ -478,40 +511,11 @@ bank_fit <- function(parameters, data) {
 
 #' `simulate()`/`simulate_steps()`/`respecify()` for `BankFit`
 #'
-#' `simulate(BankFit, ownerPost, ...)` runs the exposure-based merger
-#' counterfactual for EVERY draw in `object@diagnostics$draws`, then
-#' aggregates per-quantity results using `.bank_aggregate_draws()` (internal).
-#' This is the exposure-only counterfactual path described in
-#' `design/ARCHITECTURE.md`'s "Counterfactual uncertainty response":
-#' ownership/footprint change; the Beta participation-share law
-#' (`outsideMu_{L,D}`/`phiOut_{L,D}`) is held fixed unless a caller-supplied
-#' `uncertainty` primitive-shift step is provided (NOT implemented in this
-#' migration wave -- see the roxygen note below and the migration report).
-#'
-#' `simulate_steps()` and `respecify()` are NOT implemented for `BankFit` in
-#' this migration wave, for the same reason given for `DebtFit`
-#' (`DebtCounterfactual.R`): sequential multi-step `CounterfactualPath`
-#' resume is a real feature called for by `design/ARCHITECTURE.md`'s
-#' "Counterfactual uncertainty response" opt-in primitive-shift path, but is
-#' explicitly out of scope for a parity migration of the existing
-#' single-step legacy economics (`simulate_merger_exposure.R` itself only
-#' ever solves ONE merger). They fail loudly per the `FinancialFit`
-#' default-reject contract (inherited unchanged from
-#' `FinancialArchitecture.R`) rather than silently no-oping.
-#'
-#' @section Designed seam for the opt-in primitive-shift path (NOT implemented):
-#' Per `design/ARCHITECTURE.md`: "financial defines its OWN counterfactual
-#' step type ... with an OPTIONAL uncertainty field: a user-supplied
-#' merger-induced change to the Beta primitive (bank: participation
-#' precision phi / shareOutParm)." The seam left here for that future work:
-#' `.bank_simulate_one_draw()` reads `model@outsideMu_{L,D}`/`phiOut_{L,D}`
-#' UNCHANGED from the calibrated draw for every counterfactual scenario --
-#' a future `uncertainty` argument would only need to override those two
-#' slots on `model` (e.g. `model@phiOut_L[changed_rows] <- new_phi`) before
-#' calling `calcPrices()`/`calcMC()`; nothing else in the solver would need
-#' to change. When absent (as here), behavior is identical to the
-#' exposure-only default, so adding that seam later cannot perturb this
-#' migration's parity tests.
+#' `simulate()` changes ownership/exposure while holding calibrated Beta
+#' participation primitives fixed. Sequential `simulate_steps()`, `respecify()`
+#' and opt-in primitive-shift uncertainty steps are not implemented and are not
+#' part of this single-step workflow. Numerical failures must be resolved before
+#' treating rates as equilibrium predictions; finite rates alone are insufficient.
 #'
 #' @param object A `BankFit`.
 #' @param ownerPost A post-merger bank-level ownership vector (named by bank
@@ -519,7 +523,7 @@ bank_fit <- function(parameters, data) {
 #'   currently fitted post-merger ownership.
 #' @param ... Currently unused.
 #' @return An updated `BankFit`. `@diagnostics$counterfactual` holds the
-#'   full per-draw and aggregated result (see the roxygen details above);
+#'   per-bank rate/liquidity and difference summaries;
 #'   `@model@pricePost` is set from the FIRST draw's "Full Merger" solution
 #'   for convenience.
 #' @rdname BankFit-lifecycle

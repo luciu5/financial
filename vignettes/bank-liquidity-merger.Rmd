@@ -1,0 +1,211 @@
+---
+title: "Bank merger rates and liquidity pooling"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Bank merger rates and liquidity pooling}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+How do a merger's competition effect and liquidity pooling affect loan and deposit
+rates? This guide constructs a `BankFit` from supplied point estimates and reports
+both components. It needs `financial` 0.1.0, compatible `antitrust` (at least
+0.99.43), and ordinary dependencies including `cubature`. No estimation, CmdStan
+installation or posterior artifact is required. The numbers supplied below are
+teaching parameters, not estimates from real bank data.
+
+## Supply a small bank-market panel
+
+Each bank has two market rows. Market sizes measure loan/deposit exposure in
+units consistent with the bank balance sheets. Rates are decimals: .05 means 5%;
+a rate difference .001 is 10 basis points, not .001 percent.
+
+```{r bank-inputs}
+bank_id <- rep(c("A", "B", "C"), each = 2)
+data <- list(
+  bank_id = bank_id, market_id = rep(c("m1", "m2"), 3),
+  s_cond_L = c(.4, .3, .35, .4, .25, .3),
+  s_cond_D = c(.3, .35, .4, .3, .3, .35),
+  market_size_L = rep(100, 6), market_size_D = rep(120, 6),
+  r_L = rep(.05, 6), r_D = rep(.02, 6), r_f = rep(.03, 6),
+  W_L = matrix(0, 6, 0), W_D = matrix(0, 6, 0),
+  H_out_L = matrix(1, 6, 1), H_out_D = matrix(1, 6, 1),
+  out_iv_L = rep(0, 6), out_iv_D = rep(0, 6),
+  market_state_region_id = rep(1L, 6), group_id = bank_id,
+  Z_psi = matrix(0, 3, 1), equity = c(A = 10, B = 8, C = 12),
+  liquid_assets = c(A = 5, B = 4, C = 6),
+  assets = c(A = 150, B = 120, C = 180)
+)
+parameters <- c(
+  alpha_bar_L = log(3), alpha_bar_D = log(3),
+  sigma_alpha_state_L = 0, sigma_alpha_state_D = 0,
+  `alpha_state_raw_L[1]` = 0, `alpha_state_raw_D[1]` = 0,
+  `theta_out_L[1]` = 0, `theta_out_D[1]` = 0,
+  alpha_out_L = -1.7, alpha_out_D = -1.7,
+  log_phi_bar_L = log(15), log_phi_bar_D = log(15), gamma_psi = 0
+)
+bank <- financial::bank_fit(parameters, data)
+merger <- antitrust::simulate(bank, ownerPost = c(A = "AB", B = "AB", C = "C"))
+```
+
+The named ownership vector merges banks A and B while retaining both bank
+identities for reporting. The constructor uses observed rates to recover the
+baseline state; this example does not infer a posterior. `alpha_bar_*` are
+transformed slope inputs, not the signed slopes themselves: loan sensitivity is
+negative and deposit sensitivity positive. `log_phi_bar_*` parameterizes positive
+Beta precision. See `?financial::bank_fit` for the full named parameter contract.
+
+| Input level | Ordering and interpretation |
+| --- | --- |
+| Bank-market row | Conditional loan/deposit shares sum to one within each market; rates, sizes and design-matrix rows align with these observations |
+| Bank | Named equity, liquid assets, assets and ownership; unnamed inputs use sorted unique bank IDs |
+| Liquidity group | `group_id` is constant within bank; `Z_psi` rows use sorted distinct group IDs |
+
+The six observed bank-market rows become three bank-rate outputs per side.
+The solver sets one loan rate and one deposit rate per bank, common across that
+bank's markets. Baseline observed rates are aggregated with **side-specific
+expected-quantity footprint weights**, not a simple unweighted average of market
+rates. Identical observed rates conceal that weighting in this example; with
+heterogeneous input rates, do not label the output as market-specific forecasts.
+
+Zero-column `W_L`/`W_D` means no cost covariates in this example. Explicit total
+assets determine asset-weighted pooling; omitting them invokes a liquid-assets
+plus equity proxy with a warning. Conditional shares are not unconditional loan
+or deposit participation rates: the model separately represents nonparticipation.
+
+## Compare baseline, competition-only and full-merger rates
+
+Both post scenarios have **the same ownership**. Competition-only freezes the
+baseline liquidity wedges; the full merger allows the pooled liquidity state
+to affect marginal costs. For this point estimate each reported bank entry is
+a list with `$value` and `$n_draws`.
+
+```{r rate-table}
+cf <- merger@diagnostics$counterfactual
+point <- function(entries) vapply(entries, function(x) x$value, numeric(1))
+rates <- cf$rates
+rate_table <- data.frame(
+  bank = rep(names(rates$pre_L), 2), side = rep(c("loan", "deposit"), each = 3),
+  pre = c(point(rates$pre_L), point(rates$pre_D)),
+  competition = c(point(rates$comp_L), point(rates$comp_D)),
+  full = c(point(rates$full_L), point(rates$full_D))
+)
+rate_table$full_change_bp <- 10000 * (rate_table$full - rate_table$pre)
+knitr::kable(rate_table, digits = c(0, 0, 8, 8, 8, 3),
+             caption = "Decimal rate levels; full-minus-pre change in basis points.")
+```
+
+A positive loan-rate change increases borrowers' rate; a positive deposit-rate
+change increases the rate paid to depositors. These have different customer
+interpretations. The table reports model outcomes, not a claim that pooling
+always offsets market power or benefits both customer groups.
+
+For these teaching inputs, the merged banks' deposit rates lie near the
+nonnegative-rate lower bound; they are not ordinary interior-rate predictions.
+The large loan-rate increases also illustrate why these supplied parameters
+are not realistic forecasts for a policy memo. A near-boundary solution needs
+the appropriate constrained-optimum interpretation, not an interior FOC claim.
+
+## Keep the two delta baselines separate
+
+`scenario_diff` isolates the full-minus-competition comparison under common
+post ownership. It is different from a full-minus-pre merger effect.
+
+```{r pooling-difference}
+pooling <- cf$scenario_diff
+pooling_table <- data.frame(
+  bank = names(pooling$rate_L_pooling_offset),
+  loan_offset_bp = 10000 * point(pooling$rate_L_pooling_offset),
+  deposit_offset_bp = 10000 * point(pooling$rate_D_pooling_offset),
+  liquidity_wedge_offset = point(pooling$lambda_pooling_offset)
+)
+pooling_display <- pooling_table
+pooling_display[-1] <- lapply(pooling_display[-1], format,
+                             scientific = TRUE, digits = 4)
+knitr::kable(pooling_display,
+             caption = "Full merger minus competition-only: liquidity pooling offset.")
+```
+
+`uncertainty_delta` instead compares each changed bank's full-merger liquidity
+state with **that bank's own frozen pre-merger reference**. A post bank can share
+the merged portfolio, so this is not an aggregate matched-portfolio effect.
+
+```{r uncertainty-delta}
+ud <- cf$uncertainty_delta
+uncertainty_table <- data.frame(
+  bank = names(ud$delta_var_W),
+  funding_gap_variance_change = point(ud$delta_var_W),
+  shadow_cost_change = point(ud$delta_lambda),
+  expected_penalty_change = point(ud$delta_E_gamma)
+)
+uncertainty_display <- uncertainty_table
+uncertainty_display[-1] <- lapply(uncertainty_display[-1], format,
+                                 scientific = TRUE, digits = 4)
+knitr::kable(uncertainty_display,
+             caption = "Full merger versus each changed bank's own pre reference.")
+```
+
+Funding-gap variance has squared exposure units; the shadow cost is the marginal
+liquidity-cost wedge used in pricing; the expected penalty is the model's convex
+liquidity cost, not a default probability. A change in one does not identify a
+change in all three. Neither table is an estimate of a merger-induced change in
+the Beta participation primitives: the current route holds those primitives
+fixed while changing exposure and ownership.
+
+Liquidity pooling is economically negligible for these particular inputs.
+Scientific formatting exposes tiny values that fixed-decimal tables would
+print as zeros. A funding-gap variance change can coexist with a tiny expected
+penalty or shadow-cost change because the penalty depends on exposure in the
+shortfall tail, not variance alone. Do not treat these very small numerical
+pooling offsets as established benefits beyond solver accuracy, or conclude
+that the model mechanically forces liquidity effects to zero.
+
+```{r decomposition-check}
+pooling_banks <- names(pooling$rate_L_pooling_offset)
+stopifnot(
+  all(is.finite(rate_table$full)),
+  max(abs(point(rates$full_L)[pooling_banks] - point(rates$comp_L)[pooling_banks] -
+            point(pooling$rate_L_pooling_offset))) < 1e-8,
+  max(abs(point(rates$full_D)[pooling_banks] - point(rates$comp_D)[pooling_banks] -
+            point(pooling$rate_D_pooling_offset))) < 1e-8,
+  identical(bank@parameters, merger@parameters)
+)
+```
+
+These are decomposition/extraction checks. Independent ownership-adjusted loan
+and deposit FOC tests provide the additional economic validation; finite rates
+alone do not establish equilibrium. Inspect solver errors rather than treating
+an unsuccessful solution as an economic prediction.
+
+The pooling-offset and uncertainty-delta tables concern changed banks; align
+bank names before subtracting them from an all-bank rate table. Unchanged bank C
+does not acquire an artificial pooling observation by recycling shorter vectors.
+
+## Supplied draws and supported lifecycle
+
+`bank_fit()` also accepts a numeric matrix/data.frame with named parameter
+columns. A single supplied row has point-result output; multiple supplied rows
+produce per-quantity mean, sd, q05/q50/q95 and n_draws. Difference summaries also
+include the fraction of draws above zero and associated odds. Arbitrary
+hand-created rows are not automatically a posterior sample.
+
+For multirow input, `fit@model` and the simulated `fit@model@pricePost` contain
+the **first draw's** result, not the posterior mean. Use the aggregated
+`@diagnostics$counterfactual` fields for draw summaries; the `$value` extraction
+helper above is intentionally for a point estimate only. Matrix/data.frame
+ingestion needs no Stan toolchain; direct posterior/CmdStanR draw objects require
+the optional `posterior` package.
+
+`simulate()` supports one ownership/exposure counterfactual. `simulate_steps()`
+and `respecify()` deliberately error for BankFit; a generic primitive-shift
+uncertainty step is not implemented. Financial constructors use their own route,
+not antitrust's general `calibrate()`/`specify()` model registry. The separate
+[debt guide](debt-default-merger.html) in the rendered collection addresses
+limited liability rather than loan/deposit liquidity pricing. If reading this
+Rmd source, use the
+[debt guide source](https://github.com/luciu5/financial/blob/main/vignettes/debt-default-merger.Rmd);
+built bundles also provide `vignette("debt-default-merger", package = "financial")`.

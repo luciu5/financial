@@ -2,12 +2,15 @@
 % Please edit documentation in R/BankCounterfactual.R
 \name{bank_fit}
 \alias{bank_fit}
-\title{Construct a \code{FinancialFit}-compatible bank fit from Stan posterior draws}
+\title{Construct a bank fit from point estimates or posterior draws}
 \usage{
 bank_fit(parameters, data)
 }
 \arguments{
-\item{parameters}{See \code{normalize_bank_draws()} (internal) for the accepted shapes.}
+\item{parameters}{A named numeric vector (point estimate), or a matrix or
+data.frame with one draw per row and named parameter columns. CmdStanR and
+\code{posterior} draw objects are accepted when \code{posterior} is installed; no
+Stan toolchain is required for vector/matrix/data.frame inputs.}
 
 \item{data}{A list with the following elements (row-level fields have
 one entry per bank-market observation; bank-level fields have one
@@ -18,7 +21,10 @@ entry per unique bank, either named by bank id or given in
 \item{\code{s_cond_L}, \code{s_cond_D}}{Row-level baseline conditional
 loan/deposit shares (renormalized to sum to 1 within market).}
 \item{\code{market_size_L}, \code{market_size_D}}{Row-level market size.}
-\item{\code{r_L}, \code{r_D}}{Row-level observed baseline loan/deposit rates.}
+\item{\code{r_L}, \code{r_D}}{Row-level observed baseline loan/deposit rates.
+Baseline bank rates use side-specific expected-quantity footprint
+weights across these rows, not an unweighted market average. The solver
+sets one loan and one deposit rate per bank, common across its markets.}
 \item{\code{r_f}}{Row-level risk-free rate.}
 \item{\code{W_L}, \code{W_D}}{Row-level cost-shifter design matrices (\verb{N x K_cost}; \code{K_cost} may be 0, i.e. zero columns).}
 \item{\code{H_out_L}, \code{H_out_D}}{Row-level outside-share design matrices
@@ -36,6 +42,8 @@ panel resolution). Must be constant within each bank.}
 \item{\code{Z_psi}}{A \verb{G x K_psi} design matrix, one row per distinct
 \code{group_id}, in \code{sort(unique(group_id))} order.}
 \item{\code{equity}, \code{liquid_assets}}{Bank-level.}
+\item{\code{assets}}{Optional bank-level total assets used by the default
+asset-weighted pooling rule. If omitted, it uses liquid assets plus equity as a proxy and warns.}
 \item{\code{liquidity_pressure}}{Optional bank-level override for the mean
 liquidity-stress state; default \code{NULL} uses
 \code{calc_portfolio_liquidity()}'s own default.}
@@ -67,4 +75,37 @@ estimate or one draw) or a matrix/data.frame of \code{N_draws} rows (columns
 named with either the \code{name[i]} or \code{name.i} convention -- both accepted,
 see \code{normalize_bank_draws()} (internal)); \code{data} supplies everything the
 deterministic solver needs that is NOT in the posterior.
+}
+\examples{
+bank_id <- rep(c("A", "B", "C"), each = 2)
+data <- list(
+  bank_id = bank_id, market_id = rep(c("m1", "m2"), 3),
+  s_cond_L = c(.4, .3, .35, .4, .25, .3),
+  s_cond_D = c(.3, .35, .4, .3, .3, .35),
+  market_size_L = rep(100, 6), market_size_D = rep(120, 6),
+  r_L = rep(.05, 6), r_D = rep(.02, 6), r_f = rep(.03, 6),
+  W_L = matrix(0, 6, 0), W_D = matrix(0, 6, 0),
+  H_out_L = matrix(1, 6, 1), H_out_D = matrix(1, 6, 1),
+  out_iv_L = rep(0, 6), out_iv_D = rep(0, 6),
+  market_state_region_id = rep(1L, 6), group_id = bank_id,
+  Z_psi = matrix(0, 3, 1), equity = c(A = 10, B = 8, C = 12),
+  liquid_assets = c(A = 5, B = 4, C = 6), assets = c(A = 150, B = 120, C = 180)
+)
+parameters <- c(
+  alpha_bar_L = log(3), alpha_bar_D = log(3),
+  sigma_alpha_state_L = 0, sigma_alpha_state_D = 0,
+  `alpha_state_raw_L[1]` = 0, `alpha_state_raw_D[1]` = 0,
+  `theta_out_L[1]` = 0, `theta_out_D[1]` = 0,
+  alpha_out_L = -1.7, alpha_out_D = -1.7,
+  log_phi_bar_L = log(15), log_phi_bar_D = log(15), gamma_psi = 0
+)
+bank <- bank_fit(parameters, data)
+merger <- simulate(bank, ownerPost = c(A = "AB", B = "AB", C = "C"))
+merger@diagnostics$counterfactual$rates$full_L
+merger@diagnostics$counterfactual$scenario_diff
+}
+\seealso{
+\code{vignette("bank-liquidity-merger", package = "financial")}
+for a point-estimate task and interpretation; the repository README links
+source guides when rendered articles are not installed.
 }

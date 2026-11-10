@@ -23,14 +23,14 @@
 #'   be between 0 and 1.
 #' @param prices A length k vector of product prices.
 #' @param margins A length k vector of product margins in proportions
-#'   (bounded between 0 and 1), some of which may equal `NA`.
+#'   (bounded between 0 and 1). Every product margin must be finite.
 #' @param ownerPre A length k vector whose values indicate which firm
 #'   produced a product pre-merger.
 #' @param ownerPost A length k vector whose values indicate which firm
 #'   produced a product post-merger.
-#' @param debtPre a length k vector of pre-merger FIRM-level debt payments.
-#'   Note that the sum of product-level debt payments should equal firm
-#'   level debt.
+#' @param debtPre A length k vector of product-row debt payment contributions
+#'   in currency levels. Contributions are summed by pre-merger owner to form
+#'   firm debt; do not repeat the complete firm payment on each product row.
 #' @param debtPost a length k vector of post-merger debt payments. Default
 #'   equals `debtPre`.
 #' @param marketID A length k vector whose values indicate which market a
@@ -94,8 +94,8 @@
 #' @param ... Additional options to feed to the [BB::BBsolve()] optimizer
 #'   used to solve for equilibrium prices.
 #'
-#' @details Using product prices, quantity shares, and all of the product
-#' margins from at least one firm, `logit.debt` recovers the price
+#' @details Using product prices, quantity shares, and finite margins for every
+#' product, `logit.debt` recovers the price
 #' coefficient and product mean valuations in a Logit demand model, subject
 #' to a firm-level debt/limited-liability default threshold. `logit.debt`
 #' then uses these calibrated parameters to simulate a merger between two
@@ -108,8 +108,8 @@
 #'     `calcPrices(LogitDebt, isMax = TRUE)` (previously an unqualified
 #'     `genD()` call that only worked if `numDeriv` happened to be
 #'     attached).
-#'   \item The `@examples` block below uses the corrected `mktSize <-
-#'     c(1, 1)` for the 2-market example (the legacy doc example set
+#'   \item The historical two-market documentation example required `mktSize <-
+#'     c(1, 1)` (the legacy doc example set
 #'     `mktSize <- 1`, which fails `LogitDebt`'s own validity check that
 #'     `length(mktSize) == nMarkets`).
 #'   \item The `mktSize` default itself is fixed from
@@ -130,27 +130,14 @@
 #'   \code{\linkS4class{LogitDebt}}.
 #' @author Charles Taragin \email{ctaragin+antitrustr@gmail.com}
 #' @examples
-#' ## 3 single-product firms, each selling in 2 markets.
-#' ## Firms 1 and 2 merge
-#' nprods <- 3
-#' nmarkets <- 2
-#' marketId <- rep(1:nmarkets, nprods)
-#' shares <- c(0.156, 0.418, 0.616, 0.424, 0.229, 0.158)
-#' prices <- c(97.303, 119.083, 94.103, 147.905, 93.113, 100.935)
-#' margins <- c(17.163, 84.026, 26.451, 103.05, 17.316, 64.105) / prices
-#' ownerPre <- ownerPost <- as.character(rep(c(1, 2, 3), each = nmarkets))
-#' ownerPost[ownerPost == "2"] <- "1"
-#' debt <- c(22.69, NA, 51.002, NA, 2.922, NA)
-#' mktSize <- c(1, 1) # legacy doc example incorrectly set this to scalar `1`
-#'
-#' simres_debt <- logit.debt(prices, shares, margins,
-#'     ownerPre, ownerPost,
-#'     debtPre = debt, marketID = marketId,
-#'     mktSize = mktSize
+#' debt <- logit.debt(
+#'   prices = c(10, 10, 10), shares = c(.3, .3, .4),
+#'   margins = c(.5, .5, .5),
+#'   ownerPre = c("1", "2", "3"), ownerPost = c("1", "1", "3"),
+#'   debtPre = c(.5, .5, .5), mktSize = 1, density = "beta"
 #' )
-#'
-#' print(simres_debt@pricePre)
-#' print(simres_debt@pricePost)
+#' stopifnot(all(is.finite(debt@pricePost)))
+#' debt@pricePost
 #' @export
 logit.debt <- function(prices, shares, margins,
     ownerPre, ownerPost,
@@ -253,18 +240,14 @@ logit.debt <- function(prices, shares, margins,
 
 #' Construct a `FinancialFit`-compatible debt fit
 #'
-#' `debt_fit()` is `financial`'s own constructor (per
-#' `design/ARCHITECTURE.md`: "`financial` ships its own constructors
-#' `debt_fit()`/`bank_fit()`") for the `DebtFit` `FinancialFit` subclass.
-#' Rather than deriving `LogitDebt` from both `Logit` and `FinancialFit`
-#' (verified mechanically possible but not the chosen design -- see the
-#' design note in `DebtClasses.R` and this migration's final report), it
-#' composes: `debt_fit()` calls [logit.debt()] to build the calibrated
-#' legacy `LogitDebt` object exactly as before, then wraps it in a `DebtFit`
-#' whose `model` slot holds that object. This mirrors the same
-#' `StructuralFit@model <- <legacy S4 object>` composition pattern
-#' `antitrust` itself uses for `AntitrustFit` (see `calibrate()` in
-#' `antitrust`'s `ModelArchitecture.R`).
+#' Calibrate the debt/limited-liability model and solve the supplied post-merger
+#' scenario. The returned `DebtFit` stores the inner `LogitDebt` model in `@model`
+#' and can be passed to `simulate()` for a single fitted-state scenario. This is
+#' a separate constructor route from antitrust's `calibrate()`/`specify()` registry.
+#'
+#' For payment units, prices and default/survival interpretation, read
+#' `vignette("debt-default-merger", package = "financial")` when available,
+#' or follow the source-guide link in the repository README.
 #'
 #' @param ... Arguments forwarded to [logit.debt()].
 #' @return A `DebtFit` object whose `model` slot holds the calibrated
@@ -302,33 +285,18 @@ debt_fit <- function(...) {
 
 #' `simulate()`/`simulate_steps()`/`respecify()` for `DebtFit`
 #'
-#' Lifecycle methods for the `FinancialFit` generics on `DebtFit`, satisfying
-#' `design/ARCHITECTURE.md`'s "Lifecycle methods implemented only where
-#' economically meaningful; unsupported ops error explicitly."
-#'
-#' `simulate(DebtFit, ownerPost, ...)` re-solves the debt model at a new
-#' post-merger ownership structure (and, optionally, new post-merger debt via
-#' `debtPost`), returning an updated `DebtFit`. This is the exposure-only
-#' counterfactual path described in `design/ARCHITECTURE.md`'s
-#' "Counterfactual uncertainty response": ownership/leverage change; the
-#' Beta outside-share law (`shareOutParm`/`density`) is held fixed unless the
-#' caller explicitly opts in via `shareOutParm`.
-#'
-#' `simulate_steps()` and `respecify()` are NOT implemented for `DebtFit` in
-#' this migration wave: sequential multi-step `CounterfactualPath` resume
-#' and cross-family respecification are real features called for by
-#' `design/ARCHITECTURE.md` but require the primitive-shift `uncertainty`
-#' step type and cumulative-uncertainty bookkeeping described there, which
-#' is explicitly out of scope for a parity migration of the existing
-#' single-step legacy economics. They fail loudly per the `FinancialFit`
-#' default-reject contract (inherited unchanged; see below) rather than
-#' silently no-oping.
+#' Re-solve one ownership/payment exposure scenario under the calibrated demand
+#' and Beta outside-share law. `simulate()` returns a `DebtFit` with price and
+#' default/survival diagnostics; `simulate_steps()` and `respecify()` deliberately
+#' error because sequential paths and primitive respecification are unsupported.
+#' The diagnostics use post-minus-pre differences, with missing comparisons for
+#' absorbed firm labels. See the debt task guide for the comparison baseline.
 #'
 #' @param object A `DebtFit`.
-#' @param ownerPost A post-merger ownership vector, matrix, or `NULL` to
+#' @param ownerPost A post-merger ownership vector or `NULL` to
 #'   reuse `object`'s currently fitted post-merger ownership.
-#' @param debtPost Optional post-merger firm-level debt vector (length
-#'   matching the fitted products); default reuses the currently fitted
+#' @param debtPost Optional post-merger product-row payment contributions,
+#'   summed by post-merger owner; default reuses the currently fitted
 #'   `debtPost`.
 #' @param ... Additional arguments forwarded to [calcPrices()] (e.g.
 #'   `isMax`).

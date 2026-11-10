@@ -15,9 +15,17 @@
 #' (`debt_fit()`, `bank_fit()`) and its own small model registry rather than
 #' reusing antitrust's internal `calibrate()`/`specify()` registry.
 #'
-#' See the frozen architecture contract in `design/ARCHITECTURE.md` for the
-#' full migration boundary and lifecycle contract.
+#' Choose a task guide with `vignette("debt-default-merger", package = "financial")`
+#' or `vignette("bank-liquidity-merger", package = "financial")` in a source
+#' bundle built with vignettes. The repository README links readable source guides
+#' when an installation omits rendered vignettes.
 #'
+#' Debt inputs are product-row payment contributions summed by owner. Bank inputs
+#' use supplied point estimates or draws; no Stan toolchain is needed for numeric
+#' vector/matrix/data.frame inputs. Both families support single-step `simulate()`;
+#' `simulate_steps()` and `respecify()` are unsupported.
+#'
+#' @seealso [debt_fit()], [bank_fit()], [logit.debt()]
 #' @keywords internal
 "_PACKAGE"
 

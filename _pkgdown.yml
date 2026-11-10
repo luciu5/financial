@@ -1,0 +1,15 @@
+destination: .scratch/pkgdown
+template:
+  bootstrap: 5
+navbar:
+  structure:
+    left: [intro, reference, articles]
+  components:
+    intro:
+      text: Get started
+      href: articles/debt-default-merger.html
+articles:
+- title: Financial merger tasks
+  contents:
+  - debt-default-merger
+  - bank-liquidity-merger

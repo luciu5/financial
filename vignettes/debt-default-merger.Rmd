@@ -1,0 +1,158 @@
+---
+title: "Debt, default risk, and one merger"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Debt, default risk, and one merger}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+This guide produces prices and default-risk comparisons for one small debt-financed
+merger. It needs `financial` 0.1.0 and compatible `antitrust` (at least 0.99.43),
+including the ordinary `cubature` dependency. It does no Bayesian estimation and
+needs no CmdStan installation. Install the package before running these chunks;
+installation is not part of the calculation.
+
+## Fit and re-solve the small market
+
+The three products initially have separate owners. Owner `"1"` buys product 2;
+the product-row payment contributions are unchanged. All margins are finite and
+expressed as proportions of price. This is the valid single-market example used
+by the package's debt lifecycle tests, rather than a historical multi-market
+diagnostic fixture.
+
+```{r debt-fit}
+fit <- financial::debt_fit(
+  prices = c(10, 10, 10), shares = c(.3, .3, .4),
+  margins = c(.5, .5, .5),
+  ownerPre = c("1", "2", "3"), ownerPost = c("1", "1", "3"),
+  debtPre = c(.5, .5, .5), mktSize = 1, density = "beta"
+)
+result <- antitrust::simulate(fit)
+price_table <- data.frame(
+  product = 1:3,
+  pre = antitrust::calcPrices(result@model, preMerger = TRUE),
+  post = antitrust::calcPrices(result@model, preMerger = FALSE)
+)
+price_table$change <- price_table$post - price_table$pre
+knitr::kable(price_table, digits = 4,
+             caption = "Price levels and post-minus-pre changes (currency per unit).")
+```
+
+`debt_fit()` calibrates the model **and solves the supplied post ownership**.
+`simulate(fit)` re-solves that stored scenario; it is not a second acquisition.
+To study a different single-step scenario, pass a new `ownerPost` and, if needed,
+`debtPost` to `simulate()` using the originating fit. The legacy constructor
+`logit.debt()` instead returns the inner `LogitDebt` model directly. Here
+`fit@model` holds that model and `fit` is the lifecycle wrapper.
+
+Read price changes as levels in the same currency as the input price; divide by
+the pre price for a proportional change. Do not interpret the merger as a change
+in marginal cost: debt affects conditional incentives through limited liability.
+
+## Keep products, firms and payment units distinct
+
+The input shares describe the product allocation conditional on the relevant
+market participation/default structure. In this example they sum to one. They
+are not a separate draw of the stochastic outside share. The Beta outside-share
+law is calibrated by the debt model using the observed prices and complete
+product margins. An ordinary unconditional inside-share vector is not a
+drop-in replacement for these observations.
+
+| Input | Meaning and unit |
+| --- | --- |
+| `prices` | Currency per physical product unit |
+| `shares` | Product quantity shares under the debt model's conditioning |
+| `margins` | `(price - marginal cost) / price`, one finite proportion per product |
+| `mktSize` | One physical market-size scale per market, consistent with profit/payment levels |
+| `debtPre`, `debtPost` | Currency payment contributions on product rows, summed by owner |
+| `ownerPre`, `ownerPost` | Product-row firm identifiers in each scenario |
+
+For a multiproduct firm, allocate its payment across its rows rather than repeat
+the whole firm payment on each row. The model sums contributions using the
+applicable pre or post owner vector. This arithmetic illustration does not fit
+another market:
+
+```{r debt-aggregation}
+payment_rows <- data.frame(owner = c("A", "A", "B"), payment = c(.2, .3, .5))
+aggregate(payment ~ owner, payment_rows, sum)
+```
+
+Firm A's payment is .5, not 1. The tutorial merger similarly combines the two .5
+contributions under owner `"1"`. Set market size and payment currency together:
+rescaling quantities without rescaling debt changes default incentives.
+
+## Interpret default and survival changes
+
+```{r default-results}
+u <- result@diagnostics$uncertainty_delta
+stopifnot(is.null(u$error))
+default_table <- data.frame(
+  firm = u$firm,
+  default_pre = unname(u$default_prob_pre),
+  default_post = unname(u$default_prob_post),
+  default_change = unname(u$delta_default_prob),
+  survival_change = unname(u$delta_survival_mass)
+)
+knitr::kable(default_table, digits = 5,
+             caption = "Probabilities and post-minus-pre probability changes.")
+```
+
+The probability columns use the interval 0 to 1; multiply a change by 100 to
+report percentage points. A negative default change is a reduction in the
+reported default probability. The survival-mass change has the opposite sign.
+Owner `"2"` is absorbed, so its post value and its difference are `NA`, not zero.
+The surviving owner's post portfolio includes both merging products, whereas
+its pre comparison is that owner's own pre portfolio. This is a firm-indexed
+comparison, not a portfolio-matched causal decomposition.
+
+In this example the merging owner benefits from pooled conditional profits;
+the table supplies the calculated sign. Other inputs need not produce the same
+price or default-risk direction. The calibrated Beta law stays fixed in this
+single-step calculation. Changing ownership or payment exposure is different
+from introducing a new uncertainty primitive.
+
+```{r debt-identities}
+defined <- is.finite(u$delta_default_prob) & is.finite(u$delta_survival_mass)
+stopifnot(
+  all(is.finite(price_table$post)),
+  all(u$default_prob_post[is.finite(u$default_prob_post)] >= 0),
+  all(u$default_prob_post[is.finite(u$default_prob_post)] <= 1),
+  max(abs(u$delta_default_prob[defined] + u$delta_survival_mass[defined])) < 1e-8,
+  identical(fit@parameters, result@parameters)
+)
+```
+
+These assertions check extraction and probability accounting. They do not
+independently certify a profit-maximizing equilibrium. The package's economic
+tests additionally check the single-market default/Beta identities against
+independent calculations.
+
+## Numerical failures and supported limits
+
+Undefined default conditioning raises `financial_zero_survival`; quadrature
+that fails its error bounds raises `financial_integration_failure`; unverified
+calibration or price roots raise `financial_equilibrium_failure`. Inspect the
+condition and input units before interpreting a failed scenario. Finite prices
+alone are not a certificate, and matching an invalid historical result is not
+economic validation. Debt calibration requires every product margin to be finite.
+
+| Operation | Debt family |
+| --- | --- |
+| Construct from observed inputs | `debt_fit()`; legacy inner-model route `logit.debt()` |
+| One fitted-state scenario | `simulate()` with ownership/payment exposure changes |
+| Sequential paths | `simulate_steps()` is unsupported |
+| Switch model/uncertainty primitives | `respecify()` is unsupported; no generic uncertainty-step workflow |
+
+There is no general `calibrate()`/`specify()` registry route for this family.
+See `?financial::logit.debt` for arguments and `?financial::"DebtFit-lifecycle"`
+for the lifecycle contract. For the separate bank pricing/liquidity question,
+read [Bank merger rates and liquidity pooling](bank-liquidity-merger.html) in
+the rendered collection. If reading this Rmd source, use the
+[bank guide source](https://github.com/luciu5/financial/blob/main/vignettes/bank-liquidity-merger.Rmd)
+instead; built bundles also provide
+`vignette("bank-liquidity-merger", package = "financial")`.

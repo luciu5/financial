@@ -1,5 +1,8 @@
 # financial 0.1.0
 
+- Document complete finite debt margins and runnable debt/bank examples, including optional total assets.
+- Use the equilibrium solver's total-asset pooling weights when reporting the bank liquidity-penalty change; retain the existing rates and economic equations.
+
 - Provide separate debt/limited-liability and bank liquidity merger families on the antitrust structural-fit interface.
 - Add independent public bank FOC checks for overlapping ownership footprints and pooled liquidity.
 - Retain documented legacy numerical limitations; release validation distinguishes converged economics from nonconverged historical solver outputs.

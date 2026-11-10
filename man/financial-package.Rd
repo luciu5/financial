@@ -24,11 +24,26 @@ code with, any other sibling package. It ships its own constructors
 (\code{debt_fit()}, \code{bank_fit()}) and its own small model registry rather than
 reusing antitrust's internal \code{calibrate()}/\code{specify()} registry.
 
-See the frozen architecture contract in \code{design/ARCHITECTURE.md} for the
-full migration boundary and lifecycle contract.
+Choose a task guide with \code{vignette("debt-default-merger", package = "financial")}
+or \code{vignette("bank-liquidity-merger", package = "financial")} in a source
+bundle built with vignettes. The repository README links readable source guides
+when an installation omits rendered vignettes.
+
+Debt inputs are product-row payment contributions summed by owner. Bank inputs
+use supplied point estimates or draws; no Stan toolchain is needed for numeric
+vector/matrix/data.frame inputs. Both families support single-step \code{simulate()};
+\code{simulate_steps()} and \code{respecify()} are unsupported.
+}
+\seealso{
+\code{\link[=debt_fit]{debt_fit()}}, \code{\link[=bank_fit]{bank_fit()}}, \code{\link[=logit.debt]{logit.debt()}}
 }
 \author{
 \strong{Maintainer}: Charles Taragin \email{ctaragin+antitrustr@gmail.com}
+
+Authors:
+\itemize{
+  \item Charles Taragin \email{ctaragin+antitrustr@gmail.com}
+}
 
 }
 \keyword{internal}

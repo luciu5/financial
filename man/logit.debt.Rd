@@ -38,7 +38,7 @@ logit.debt(
 be between 0 and 1.}
 
 \item{margins}{A length k vector of product margins in proportions
-(bounded between 0 and 1), some of which may equal \code{NA}.}
+(bounded between 0 and 1). Every product margin must be finite.}
 
 \item{ownerPre}{A length k vector whose values indicate which firm
 produced a product pre-merger.}
@@ -46,9 +46,9 @@ produced a product pre-merger.}
 \item{ownerPost}{A length k vector whose values indicate which firm
 produced a product post-merger.}
 
-\item{debtPre}{a length k vector of pre-merger FIRM-level debt payments.
-Note that the sum of product-level debt payments should equal firm
-level debt.}
+\item{debtPre}{A length k vector of product-row debt payment contributions
+in currency levels. Contributions are summed by pre-merger owner to form
+firm debt; do not repeat the complete firm payment on each product row.}
 
 \item{debtPost}{a length k vector of post-merger debt payments. Default
 equals \code{debtPre}.}
@@ -148,8 +148,8 @@ Let k denote the number of products produced by all firms across all
 markets. Let f denote the number of firms producing products across all
 markets. Let m denote the number of markets.
 
-Using product prices, quantity shares, and all of the product
-margins from at least one firm, \code{logit.debt} recovers the price
+Using product prices, quantity shares, and finite margins for every
+product, \code{logit.debt} recovers the price
 coefficient and product mean valuations in a Logit demand model, subject
 to a firm-level debt/limited-liability default threshold. \code{logit.debt}
 then uses these calibrated parameters to simulate a merger between two
@@ -162,7 +162,7 @@ Legacy defects fixed during migration (see \code{design/ARCHITECTURE.md}'s
 \code{calcPrices(LogitDebt, isMax = TRUE)} (previously an unqualified
 \code{genD()} call that only worked if \code{numDeriv} happened to be
 attached).
-\item The \verb{@examples} block below uses the corrected \code{mktSize <- c(1, 1)} for the 2-market example (the legacy doc example set
+\item The historical two-market documentation example required \code{mktSize <- c(1, 1)} (the legacy doc example set
 \code{mktSize <- 1}, which fails \code{LogitDebt}'s own validity check that
 \code{length(mktSize) == nMarkets}).
 \item The \code{mktSize} default itself is fixed from
@@ -179,36 +179,24 @@ None of these fixes changes the calibrated/simulated economics for any
 existing caller that supplies \code{mktSize} and \code{density} explicitly (as the
 golden-master oracle fixtures all do).
 }
+\section{Calibration inputs}{
+
+Debt calibration currently requires a finite margin for every product.
+Missing margins cannot identify the conditional firm-profit integrals and
+raise a \code{financial_equilibrium_failure} error naming product positions.
+This restriction applies to the debt family, not bank calibration.
+}
+
 \examples{
-## 3 single-product firms, each selling in 2 markets.
-## Firms 1 and 2 merge
-nprods <- 3
-nmarkets <- 2
-marketId <- rep(1:nmarkets, nprods)
-shares <- c(0.156, 0.418, 0.616, 0.424, 0.229, 0.158)
-prices <- c(97.303, 119.083, 94.103, 147.905, 93.113, 100.935)
-margins <- c(17.163, 84.026, 26.451, 103.05, 17.316, 64.105) / prices
-ownerPre <- ownerPost <- as.character(rep(c(1, 2, 3), each = nmarkets))
-ownerPost[ownerPost == "2"] <- "1"
-debt <- c(22.69, NA, 51.002, NA, 2.922, NA)
-mktSize <- c(1, 1) # legacy doc example incorrectly set this to scalar `1`
-
-simres_debt <- logit.debt(prices, shares, margins,
-    ownerPre, ownerPost,
-    debtPre = debt, marketID = marketId,
-    mktSize = mktSize
+debt <- logit.debt(
+  prices = c(10, 10, 10), shares = c(.3, .3, .4),
+  margins = c(.5, .5, .5),
+  ownerPre = c("1", "2", "3"), ownerPost = c("1", "1", "3"),
+  debtPre = c(.5, .5, .5), mktSize = 1, density = "beta"
 )
-
-print(simres_debt@pricePre)
-print(simres_debt@pricePost)
+stopifnot(all(is.finite(debt@pricePost)))
+debt@pricePost
 }
 \author{
 Charles Taragin \email{ctaragin+antitrustr@gmail.com}
-}
-
-\section{Complete debt calibration margins}{
-Debt calibration currently requires finite margins for every product. Missing
-margins have no implemented conditional-profit identification rule and raise
-\code{financial_equilibrium_failure}, naming affected product positions.
-This restriction does not apply to bank calibration.
 }
